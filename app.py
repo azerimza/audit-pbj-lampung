@@ -48,7 +48,7 @@ def clean_rup(val):
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Lampung_Coats_of_arms.svg/1200px-Lampung_Coats_of_arms.svg.png", width=80)
     st.title("ADMINISTRATOR SISTEM")
-    st.write(f"**Analis:**\nReza Saputra Azmi, S.T.")
+    st.write(f"**Analis:**\nReza Saputra Azmi, S.Kom.")
     st.write("**Satker:**\nBiro PBJ Prov. Lampung")
     st.divider()
     

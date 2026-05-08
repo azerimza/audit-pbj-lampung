@@ -1,88 +1,138 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import io
-from datetime import datetime
 
-# --- 1. CONFIG & CSS ---
-st.set_page_config(page_title="E-Audit PBJ Lampung", page_icon="⚖️", layout="wide")
+# --- 1. CONFIG ---
+st.set_page_config(page_title="Audit Rekonsiliasi PBJ", layout="wide")
 
-st.markdown("""
-    <style>
-    .metric-card {
-        background-color: white; padding: 20px; border-radius: 10px;
-        border-left: 10px solid #0c2461; box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
-        margin-bottom: 20px;
-    }
-    .metric-label { font-size: 14px; color: #555; font-weight: bold; text-transform: uppercase; }
-    .metric-value { font-size: 26px; color: #0c2461; font-weight: bold; font-family: 'Consolas', monospace; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- 2. ENGINE ---
-def read_csv_smart(file):
+@st.cache_data
+def read_csv(file):
     try:
-        file.seek(0)
         return pd.read_csv(file, sep=None, engine='python', encoding='utf-8')
     except:
-        file.seek(0)
         return pd.read_csv(file, sep=None, engine='python', encoding='cp1252')
 
+def clean_val(df, col):
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col].astype(str).str.replace(r'\D', '', regex=True), errors='coerce').fillna(0)
+    return df
+
+# --- 2. SIDEBAR ---
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Lampung_Coats_of_arms.svg/1200px-Lampung_Coats_of_arms.svg.png", width=50)
-    st.title("Admin Audit")
-    st.markdown("**Reza Saputra Azmi**")
-    st.divider()
-    file_ren = st.file_uploader("Upload Data SIRUP (CSV)", type=['csv'])
-    file_real = st.file_uploader("Upload Data Realisasi (CSV)", type=['csv'])
+    st.title("Audit Lab")
+    file_ren = st.file_uploader("Upload SIRUP (Rencana)", type=['csv'])
+    file_real = st.file_uploader("Upload Realisasi", type=['csv'])
 
 if file_ren and file_real:
-    df_ren, df_real = read_csv_smart(file_ren), read_csv_smart(file_real)
+    df_ren = read_csv(file_ren)
+    df_real = read_csv(file_real)
+    
+    # Cleaning Columns
+    df_ren.columns = df_ren.columns.str.strip()
+    df_real.columns = df_real.columns.str.strip()
+    
     val_col = 'Total Nilai (Rp)'
-    sumber_col = 'Sumber Transaksi'
+    rup_col = 'Kode RUP'
+    metode_col = 'Metode Pengadaan' # Atau 'Sumber Transaksi'
+    satker_col = 'Nama Satuan Kerja'
+    jenis_col = 'Jenis Pengadaan' # Untuk membedakan Swakelola/Penyedia
 
-    # Cleaning & Processing
-    df_real[val_col] = pd.to_numeric(df_real[val_col].astype(str).str.replace(r'\D', '', regex=True), errors='coerce').fillna(0)
-    df_ren[val_col] = pd.to_numeric(df_ren[val_col].astype(str).str.replace(r'\D', '', regex=True), errors='coerce').fillna(0)
-    
-    is_tokodaring = df_real[sumber_col].str.contains('Tokodaring|Toko Daring', case=False, na=False)
-    df_td = df_real[is_tokodaring].copy()
-    df_kat = df_real[~is_tokodaring].copy()
+    df_ren = clean_val(df_ren, val_col)
+    df_real = clean_val(df_real, val_col)
 
-    # --- UI ---
-    st.markdown("# ⚖️ Laporan Audit PBJ Digital")
-    
-    # Tombol Export di Baris Atas
-    col_exp1, col_exp2 = st.columns(2)
-    
-    # Logika Export Excel
-    output_xlsx = io.BytesIO()
-    with pd.ExcelWriter(output_xlsx, engine='xlsxwriter') as writer:
-        df_real.to_excel(writer, sheet_name='Data_Realisasi', index=False)
-        df_ren.to_excel(writer, sheet_name='Data_Rencana', index=False)
-    
-    col_exp1.download_button(
-        label="📥 Download Laporan Excel",
-        data=output_xlsx.getvalue(),
-        file_name=f"Audit_PBJ_Lampung_{datetime.now().strftime('%d%m%Y')}.xlsx",
-        mime="application/vnd.ms-excel"
+    # --- LOGIKA 1 & 2: AGREGASI REALISASI (GROUPING BY RUP) ---
+    # Kita jumlahkan anggaran realisasi per Kode RUP agar unik
+    df_real_unique = df_real.groupby(rup_col).agg({
+        val_col: 'sum',
+        satker_col: 'first',
+        metode_col: 'first',
+        jenis_col: 'first'
+    }).reset_index()
+
+    # --- MAPPING & MERGING ---
+    df_merge = pd.merge(
+        df_ren[[rup_col, val_col, satker_col, jenis_col]].rename(columns={val_col: 'Pagu_Rencana'}),
+        df_real_unique[[rup_col, val_col, metode_col]].rename(columns={val_col: 'Total_Realisasi'}),
+        on=rup_col,
+        how='outer',
+        indicator=True
     )
 
-    st.markdown(f"""<div class="metric-card">
-        <div class="metric-label">TOTAL PAGU RENCANA</div>
-        <div class="metric-value">Rp {df_ren[val_col].sum():,.0f}</div>
-    </div>""", unsafe_allow_html=True)
+    # --- LOGIKA 1, 2, 3 (IDENTIFIKASI) ---
+    # 1. Sesuai Rencana (Ada di keduanya)
+    df_sesuai = df_merge[df_merge['_merge'] == 'both']
+    
+    # 2. Hanya di Realisasi (Tidak ada di SIRUP)
+    df_extra = df_merge[df_merge['_merge'] == 'right_only']
+    
+    # 3. Melebihi Anggaran (Overbudget)
+    df_over = df_sesuai[df_sesuai['Total_Realisasi'] > df_sesuai['Pagu_Rencana']]
 
-    st.markdown(f"""<div class="metric-card" style="border-left-color: #007bff;">
-        <div class="metric-label">REALISASI E-KATALOG (5.0 & 6.0)</div>
-        <div class="metric-value">Rp {df_kat[val_col].sum():,.0f}</div>
-        <div style="font-size:12px; color:gray;">Total: {len(df_kat)} Paket</div>
-    </div>""", unsafe_allow_html=True)
+    # --- LOGIKA 4: PEMISAHAN SPESIFIK ---
+    def kategori_pbj(row):
+        m = str(row[metode_col]).lower()
+        if 'tokodaring' in m or 'toko daring' in m: return 'Toko Daring'
+        if 'katalog 5' in m: return 'E-Katalog 5.0'
+        if 'katalog 6' in m: return 'E-Katalog 6.0'
+        if 'pencatatan' in m and 'simpel' not in m: return 'Pencatatan'
+        if 'simpelpencatatan' in m: return 'SimpelPencatatan'
+        if 'non tender' in m: return 'Non Tender'
+        if 'swakelola' in m: return 'Swakelola'
+        return 'Lainnya'
 
-    st.markdown(f"""<div class="metric-card" style="border-left-color: #ff9900;">
-        <div class="metric-label">REALISASI TOKODARING</div>
-        <div class="metric-value">Rp {df_td[val_col].sum():,.0f}</div>
-        <div style="font-size:12px; color:gray;">Total: {len(df_td)} Paket</div>
-    </div>""", unsafe_allow_html=True)
+    df_real_unique['Kategori_Audit'] = df_real_unique.apply(kategori_pbj, axis=1)
+
+    # --- LOGIKA 5: LAPORAN TABULAR (REKAP SATKER) ---
+    st.header("📑 Laporan Audit Rekonsiliasi Satker")
+    
+    satkers = sorted(df_ren[satker_col].dropna().unique())
+    rekap_data = []
+
+    for s in satkers:
+        # Filter data per satker
+        r_ren = df_ren[df_ren[satker_col] == s]
+        r_real = df_real_unique[df_real_unique[satker_col] == s]
+        r_merge = df_merge[df_merge[satker_col] == s]
+
+        # RUP Perencanaan
+        swakelola_ren = r_ren[r_ren[jenis_col].str.contains('Swakelola', na=False)]
+        penyedia_ren = r_ren[~r_ren[jenis_col].str.contains('Swakelola', na=False)]
+
+        # Realisasi
+        swakelola_real = r_real[r_real['Kategori_Audit'] == 'Swakelola']
+        
+        # Penyedia Detail
+        penyedia_match = r_merge[r_merge['_merge'] == 'both']
+        penyedia_no_match = r_merge[r_merge['_merge'] == 'right_only']
+        penyedia_tokodaring = r_real[r_real['Kategori_Audit'] == 'Toko Daring']
+
+        rekap_data.append({
+            'Nama Satuan Kerja': s,
+            'RUP Swakelola (Pkt)': len(swakelola_ren),
+            'RUP Swakelola (Angg)': swakelola_ren['Pagu_Rencana'].sum() if 'Pagu_Rencana' in swakelola_ren else 0,
+            'RUP Penyedia (Pkt)': len(penyedia_ren),
+            'RUP Penyedia (Angg)': penyedia_ren['Pagu_Rencana'].sum() if 'Pagu_Rencana' in penyedia_ren else 0,
+            'Real Swakelola (Angg)': swakelola_real[val_col].sum(),
+            'Penyedia (Sesuai RUP)': penyedia_match['Total_Realisasi'].sum(),
+            'Penyedia (Tidak Sesuai)': penyedia_no_match['Total_Realisasi'].sum(),
+            'Penyedia (Toko Daring)': penyedia_tokodaring[val_col].sum(),
+            'Selisih Anggaran': (r_ren[val_col].sum() - r_real[val_col].sum())
+        })
+
+    df_laporan_final = pd.DataFrame(rekap_data)
+    st.dataframe(df_laporan_final.style.format(precision=0, thousands=","), use_container_width=True)
+
+    # Tombol Download
+    output = io.BytesIO()
+    df_laporan_final.to_excel(output, index=False)
+    st.download_button("📥 Download Laporan Audit Satker (.xlsx)", output.getvalue(), "Laporan_Audit_Detail.xlsx")
+
+    # --- VISUALISASI KATEGORI (POIN 4) ---
+    st.divider()
+    st.subheader("📊 Distribusi Kategori Realisasi (Poin 4)")
+    summary_kategori = df_real_unique.groupby('Kategori_Audit').agg({val_col: 'sum', rup_col: 'count'}).rename(columns={rup_col: 'Jumlah Paket'})
+    st.table(summary_kategori.style.format(precision=0, thousands=","))
 
 else:
-    st.info("Unggah file untuk mengaktifkan fitur ekspor laporan.")
+    st.info("Silakan unggah kedua file CSV untuk memproses audit rekonsiliasi.")

@@ -21,21 +21,20 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# Fungsi Cache agar aplikasi kencang
+@st.cache_data
 def clean_rup(val):
     if pd.isna(val) or val == "": return ""
     return ''.join(filter(str.isdigit, str(val)))
 
-# Fungsi Spesial Membaca CSV (Mendeteksi Pemisah Otomatis)
 def read_csv_smart(file):
     try:
-        # Coba baca dengan koma
-        df = pd.read_csv(file, sep=',', encoding='utf-8')
-        if len(df.columns) <= 1: # Jika gagal membagi kolom
-            file.seek(0)
-            df = pd.read_csv(file, sep=';', encoding='utf-8')
+        # Coba beberapa delimiter umum di Indonesia
+        file.seek(0)
+        df = pd.read_csv(file, sep=None, engine='python', encoding='utf-8')
     except:
         file.seek(0)
-        df = pd.read_csv(file, sep=';', encoding='cp1252') # Alternatif encoding
+        df = pd.read_csv(file, sep=None, engine='python', encoding='cp1252')
     return df
 
 # --- 2. SIDEBAR ---
@@ -46,19 +45,15 @@ with st.sidebar:
     st.markdown("**Unit:**\nBiro PBJ Prov. Lampung")
     st.divider()
     
-    st.subheader("📁 UPLOAD FILE (.CSV)")
     file_ren = st.file_uploader("1. Data SIRUP (CSV)", type=['csv'])
     file_real = st.file_uploader("2. Data Realisasi (CSV)", type=['csv'])
-    
-    st.divider()
-    st.caption("E-Audit CSV v3.2 | 2026")
+    st.caption("E-Audit Stable v3.3 | 2026")
 
 # --- 3. ENGINE ---
 if file_ren and file_real:
     df_ren = read_csv_smart(file_ren)
     df_real = read_csv_smart(file_real)
     
-    # Bersihkan spasi di nama kolom
     df_ren.columns = df_ren.columns.str.strip()
     df_real.columns = df_real.columns.str.strip()
 
@@ -71,47 +66,47 @@ if file_ren and file_real:
         df_ren['ID_RUP_CLEAN'] = df_ren[rup_col].astype(str).apply(clean_rup)
         df_real['ID_RUP_CLEAN'] = df_real[rup_col].astype(str).apply(clean_rup)
         
-        # Bersihkan format mata uang jika ada (misal: "Rp 1.000")
-        for col in [df_ren, df_real]:
-            if val_col in col.columns:
-                col[val_col] = col[val_col].astype(str).str.replace(r'[^0-9]', '', regex=True)
-                col[val_col] = pd.to_numeric(col[val_col], errors='coerce').fillna(0)
+        # Bersihkan angka dari karakter Rp, titik, atau koma
+        for df_temp in [df_ren, df_real]:
+            if val_col in df_temp.columns:
+                df_temp[val_col] = df_temp[val_col].astype(str).str.replace(r'\D', '', regex=True)
+                df_temp[val_col] = pd.to_numeric(df_temp[val_col], errors='coerce').fillna(0)
         
         if pdn_col in df_real.columns:
-            df_real[pdn_col] = df_real[pdn_col].astype(str).str.replace(r'[^0-9]', '', regex=True)
+            df_real[pdn_col] = df_real[pdn_col].astype(str).str.replace(r'\D', '', regex=True)
             df_real[pdn_col] = pd.to_numeric(df_real[pdn_col], errors='coerce').fillna(0)
 
+        # Proses Join
         df_join = pd.merge(df_real, df_ren[['ID_RUP_CLEAN', 'Cara Pengadaan', val_col, 'Nama Paket']], 
                            on='ID_RUP_CLEAN', how='left', suffixes=('_REAL', '_REN'))
 
         def audit_logic(row):
-            if not row['ID_RUP_CLEAN']: return "⚠️ KODE RUP KOSONG"
+            if not row['ID_RUP_CLEAN'] or row['ID_RUP_CLEAN'] == "": return "⚠️ KODE RUP KOSONG"
             if pd.isna(row['Nama Paket_REN']): return "⚠️ RUP TIDAK TERDAFTAR"
             if row[f'{val_col}_REAL'] > row[f'{val_col}_REN']: return "⚠️ MELEBIHI PAGU"
             return "✅ VALID"
 
         df_join['Status Audit'] = df_join.apply(audit_logic, axis=1)
 
-        # --- TAMPILAN DASHBOARD ---
-        st.title("⚖️ REKONSILIASI PBJ (MODE CSV)")
+        # --- 4. TAMPILAN ---
+        st.title("⚖️ REKONSILIASI PBJ")
         
         k1, k2, k3, k4 = st.columns(4)
         total_real = df_real[val_col].sum()
         
-        with k1:
-            st.metric("Total Realisasi", f"Rp {total_real/1e9:.2f} M")
-        with k2:
-            if pdn_col in df_real.columns:
-                total_pdn = df_real[pdn_col].sum()
-                p_pdn = (total_pdn/total_real*100) if total_real > 0 else 0
-                st.metric("Capaian PDN", f"{p_pdn:.1f}%")
-            else: st.metric("Capaian PDN", "N/A")
-        with k3:
-            efisiensi = (df_join[df_join['Status Audit']=="✅ VALID"][f'{val_col}_REN'].sum()) - (df_join[df_join['Status Audit']=="✅ VALID"][f'{val_col}_REAL'].sum())
-            st.metric("Efisiensi Pagu", f"Rp {efisiensi/1e6:.1f} Jt")
-        with k4:
-            valid_rate = (len(df_join[df_join['Status Audit']=="✅ VALID"]) / len(df_real) * 100) if len(df_real) > 0 else 0
-            st.metric("Kepatuhan RUP", f"{valid_rate:.1f}%")
+        k1.metric("Total Realisasi", f"Rp {total_real/1e9:.2f} M")
+        
+        if pdn_col in df_real.columns:
+            total_pdn = df_real[pdn_col].sum()
+            p_pdn = (total_pdn/total_real*100) if total_real > 0 else 0
+            k2.metric("Capaian PDN", f"{p_pdn:.1f}%")
+        else: k2.metric("Capaian PDN", "N/A")
+        
+        efisiensi = (df_join[df_join['Status Audit']=="✅ VALID"][f'{val_col}_REN'].sum()) - (df_join[df_join['Status Audit']=="✅ VALID"][f'{val_col}_REAL'].sum())
+        k3.metric("Efisiensi Pagu", f"Rp {efisiensi/1e6:.1f} Jt")
+        
+        valid_rate = (len(df_join[df_join['Status Audit']=="✅ VALID"]) / len(df_real) * 100) if len(df_real) > 0 else 0
+        k4.metric("Kepatuhan RUP", f"{valid_rate:.1f}%")
 
         st.divider()
         search = st.text_input("🔍 Cari Paket atau Satker...", "")
@@ -122,19 +117,30 @@ if file_ren and file_real:
 
         tab1, tab2 = st.tabs(["📝 Laporan Validasi", "📊 Statistik"])
         with tab1:
+            # PERBAIKAN DI SINI: Menggunakan map (untuk pandas baru) atau applymap dengan check
             def style_r(v):
                 if v == "✅ VALID": return 'background-color: #e1f5e6'
                 if v == "⚠️ MELEBIHI PAGU": return 'background-color: #fff3cd'
                 return 'background-color: #ffdada'
-            st.dataframe(df_f.style.applymap(style_r, subset=['Status Audit']), use_container_width=True)
+            
+            try:
+                # Coba cara terbaru (Pandas 2.x)
+                styled_df = df_f.style.map(style_r, subset=['Status Audit'])
+            except:
+                # Cara lama (Pandas 1.x)
+                styled_df = df_f.style.applymap(style_r, subset=['Status Audit'])
+                
+            st.dataframe(styled_df, use_container_width=True)
             
             output = io.BytesIO()
-            df_f.to_excel(output, index=False)
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df_f.to_excel(writer, index=False)
             st.download_button("📥 Unduh Hasil (.xlsx)", output.getvalue(), "Laporan_Audit.xlsx")
+        
         with tab2:
             st.bar_chart(df_join['Status Audit'].value_counts())
     else:
-        st.error(f"Kolom '{rup_col}' tidak ditemukan. Periksa apakah file CSV menggunakan pemisah koma (,) atau titik koma (;).")
+        st.error(f"Kolom '{rup_col}' tidak ditemukan. Pastikan file CSV memiliki header tersebut.")
 else:
     st.title("⚖️ Sistem Audit Digital PBJ Lampung")
     st.info("Silakan unggah file CSV SIRUP dan E-Katalog.")

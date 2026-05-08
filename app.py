@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 import io
 
-# --- 1. CONFIG & STYLING (KUNCI VISUAL V6.1) ---
+# --- 1. CONFIG & STYLING ---
 st.set_page_config(page_title="REKONSILIASI DATA", layout="wide")
 
 st.markdown("""
@@ -27,25 +27,36 @@ def read_csv_smart(file):
         file.seek(0)
         return pd.read_csv(file, sep=None, engine='python', encoding='cp1252')
 
-    # Membuat 3 kolom, kolom tengah (col2) diberi bobot lebih besar/pas
+# --- 2. SIDEBAR (PERBAIKAN STRUKTUR & CENTER) ---
+with st.sidebar:
+    # Membuat kolom agar gambar bisa di tengah
     col1, col2, col3 = st.columns([1, 2, 1]) 
-    
     with col2:
+        # Pastikan file "LOGO PEMPROV BARU.png" ada di folder yang sama
         st.image("LOGO PEMPROV BARU.png", width=60)
     
-    # Menggunakan HTML sedikit agar teks benar-benar center mengikuti logo
-    st.markdown("<h3 style='text-align: center;'>PEMBINAAN DAN ADVOKASI v7.1</h3>", unsafe_allow_html=True)
+    # Teks Center
+    st.markdown("<h3 style='text-align: center; margin-top: -10px;'>PEMBINAAN DAN ADVOKASI</h3>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center;'><b>Reza Saputra Azmi</b></p>", unsafe_allow_html=True)
+    st.divider()
+    
+    # Input File (Sekarang di luar fungsi, akan tampil di sidebar)
     file_ren = st.file_uploader("Upload Data SIRUP", type=['csv'])
     file_real = st.file_uploader("Upload Data Realisasi", type=['csv'])
 
+# --- 3. LOGIKA PEMROSESAN DATA ---
 if file_ren and file_real:
     df_ren, df_real = read_csv_smart(file_ren), read_csv_smart(file_real)
     val_col, rup_col, satker_col = 'Total Nilai (Rp)', 'Kode RUP', 'Nama Satuan Kerja'
     
+    # Bersihkan Nama Kolom
+    df_ren.columns = df_ren.columns.str.strip()
+    df_real.columns = df_real.columns.str.strip()
+
+    # Konversi Angka
     for df in [df_ren, df_real]:
-        df.columns = df.columns.str.strip()
-        df[val_col] = pd.to_numeric(df[val_col].astype(str).str.replace(r'\D', '', regex=True), errors='coerce').fillna(0)
+        if val_col in df.columns:
+            df[val_col] = pd.to_numeric(df[val_col].astype(str).str.replace(r'\D', '', regex=True), errors='coerce').fillna(0)
 
     # PEMISAHAN KATEGORI
     def map_kat(m):
@@ -59,14 +70,17 @@ if file_ren and file_real:
         if 'swakelola' in m: return 'Swakelola'
         return 'Lainnya'
 
-    df_real['Kat_Audit'] = df_real['Metode Pengadaan'].apply(map_kat)
+    if 'Metode Pengadaan' in df_real.columns:
+        df_real['Kat_Audit'] = df_real['Metode Pengadaan'].apply(map_kat)
+    else:
+        df_real['Kat_Audit'] = 'Lainnya'
     
-    # AGREGASI KODE RUP (POIN 1 & 2)
+    # AGREGASI KODE RUP
     df_real_agg = df_real.groupby(rup_col).agg({
         val_col: 'sum', satker_col: 'first', 'Kat_Audit': 'first', 'Jenis Pengadaan': 'first'
     }).reset_index()
 
-    # --- 3. DASHBOARD VISUAL ---
+    # --- 4. DASHBOARD VISUAL ---
     st.title("📊 Dashboard Audit & Rekonsiliasi")
     
     c1, c2, c3, c4 = st.columns(4)
@@ -77,7 +91,7 @@ if file_ren and file_real:
     c3.markdown(f'<div class="stat-card"><div class="stat-label">TOTAL REALISASI</div><div class="stat-value">Rp {df_real[val_col].sum():,.0f}</div></div>', unsafe_allow_html=True)
     c4.markdown(f'<div class="stat-card"><div class="stat-label">EFISIENSI ANGGARAN</div><div class="stat-value">Rp {df_ren[val_col].sum() - df_real[val_col].sum():,.0f}</div></div>', unsafe_allow_html=True)
 
-    # --- 4. LAPORAN REKAPITULASI (FIXED LOGIC) ---
+    # --- 5. LAPORAN REKAPITULASI ---
     st.divider()
     st.subheader("📑 Laporan Audit Rekonsiliasi Per Satker")
     
@@ -93,38 +107,31 @@ if file_ren and file_real:
         py_ren = ren_s[~ren_s['Jenis Pengadaan'].str.contains('Swakelola', na=False)]
         sesuai_rup_df = merge_s[merge_s['_merge'] == 'both']
         
-        # Hitung Selisih
         selisih_pkt = len(ren_s) - len(sesuai_rup_df)
         selisih_angg = ren_s[val_col].sum() - real_s[val_col].sum()
-
-        # Identifikasi Overbudget
         over = sesuai_rup_df[sesuai_rup_df[val_col + '_y'] > sesuai_rup_df[val_col + '_x']]
 
         rekap_list.append({
-            'No': i, 
-            'Nama Satuan Kerja': s,
-            'RUP Swakelola (Pkt)': len(sw_ren), 
-            'RUP Swakelola (Angg)': sw_ren[val_col].sum(),
-            'RUP Penyedia (Pkt)': len(py_ren), 
-            'RUP Penyedia (Angg)': py_ren[val_col].sum(),
+            'No': i, 'Nama Satuan Kerja': s,
+            'RUP Swakelola (Pkt)': len(sw_ren), 'RUP Swakelola (Angg)': sw_ren[val_col].sum(),
+            'RUP Penyedia (Pkt)': len(py_ren), 'RUP Penyedia (Angg)': py_ren[val_col].sum(),
             'Real Swakelola (Angg)': real_s[real_s['Kat_Audit'] == 'Swakelola'][val_col].sum(),
             'Penyedia Sesuai RUP (Pkt)': len(sesuai_rup_df),
             'Penyedia Sesuai RUP (Angg)': sesuai_rup_df[val_col + '_y'].sum(),
             'Penyedia Tidak Sesuai (Angg)': merge_s[merge_s['_merge'] == 'right_only'][val_col + '_y'].sum(),
             'Penyedia Tokodaring (Angg)': real_s[real_s['Kat_Audit'] == 'Tokodaring'][val_col].sum(),
-            'Selisih Paket': selisih_pkt,
-            'Selisih Anggaran': selisih_angg,
+            'Selisih Paket': selisih_pkt, 'Selisih Anggaran': selisih_angg,
             'Identifikasi': f"Overbudget: {len(over)} pkt" if len(over) > 0 else "Normal"
         })
 
     df_final = pd.DataFrame(rekap_list)
     st.dataframe(df_final.style.format(precision=0, thousands=","), use_container_width=True)
 
-    # --- 5. EXPORT EXCEL (FIXED CORRUPTION) ---
+    # --- 6. EXPORT EXCEL ---
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
         df_final.to_excel(writer, sheet_name='Laporan_Audit', index=False)
-        writer.close() # Pastikan file ditutup dengan benar
+        writer.close()
     
     st.download_button(
         label="📥 Download Laporan Lengkap v7.1", 

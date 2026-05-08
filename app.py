@@ -76,3 +76,42 @@ if file_ren and file_real:
         
         # Identifikasi Kondisi
         sesuai_rup = merge_s[(merge_s['_merge'] == 'both') & (merge_s['Kat_Audit'] != 'Tokodaring')]
+        tidak_sesuai = merge_s[merge_s['_merge'] == 'right_only']
+        over_budget = sesuai_rup[sesuai_rup[val_col + '_y'] > sesuai_rup[val_col + '_x']] # POIN 3
+        
+        rekap_list.append({
+            'No': i,
+            'Satuan Kerja': s,
+            'RUP Swakelola (Pkt)': len(sw_ren),
+            'RUP Swakelola (Angg)': sw_ren[val_col].sum(),
+            'RUP Penyedia (Pkt)': len(py_ren),
+            'RUP Penyedia (Angg)': py_ren[val_col].sum(),
+            'Real Swakelola (Angg)': real_s[real_s['Kat_Audit'] == 'Swakelola'][val_col].sum(),
+            'Penyedia Sesuai RUP (Angg)': sesuai_rup[val_col + '_y'].sum(),
+            'Penyedia Tidak Sesuai RUP (Angg)': tidak_sesuai[val_col + '_y'].sum(),
+            'Penyedia Toko Daring (Angg)': real_s[real_s['Kat_Audit'] == 'Tokodaring'][val_col].sum(),
+            'Selisih Anggaran': ren_s[val_col].sum() - real_s[val_col].sum(),
+            'Keterangan': f"Overbudget: {len(over_budget)} pkt" if len(over_budget) > 0 else "Normal"
+        })
+
+    df_laporan = pd.DataFrame(rekap_list)
+
+    # --- TAMPILAN DASHBOARD (VISUAL AWAL) ---
+    st.markdown("# ⚖️ Laporan Realisasi Anggaran Detail")
+    st.markdown(f'<div class="metric-card"><div class="metric-label">TOTAL PAGU RENCANA</div><div class="metric-value">Rp {df_ren[val_col].sum():,.0f}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card" style="border-left-color: #007bff;"><div class="metric-label">REALISASI KATALOG & LAINNYA</div><div class="metric-value">Rp {df_real_agg[df_real_agg["Kat_Audit"].str.contains("Katalog|Pencatatan")][val_col].sum():,.0f}</div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="metric-card" style="border-left-color: #ff9900;"><div class="metric-label">REALISASI TOKODARING</div><div class="metric-value">Rp {df_real_agg[df_real_agg["Kat_Audit"] == "Tokodaring"][val_col].sum():,.0f}</div></div>', unsafe_allow_html=True)
+
+    # --- TABEL LAPORAN (POIN 5) ---
+    st.divider()
+    st.subheader("📑 Tabel Laporan Audit Lengkap (Poin 5)")
+    st.dataframe(df_laporan.style.format(precision=0, thousands=","), use_container_width=True)
+
+    # EKSPOR EXCEL
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        df_laporan.to_excel(writer, sheet_name='Laporan_Audit', index=False)
+    st.download_button("📥 Download Excel Laporan Poin 5", buffer.getvalue(), "Laporan_Audit_PBJ.xlsx")
+
+else:
+    st.info("Silakan unggah data untuk memproses.")

@@ -30,8 +30,16 @@ def read_csv_smart(file):
 # --- 2. SIDEBAR ---
 with st.sidebar:
     st.image("LOGO PEMPROV BARU.png", width=60)
-    st.title("PEMBINAAN DAN ADVOKASI")
-    st.markdown("**Reza Saputra Azmi**")
+with st.sidebar:
+    # Membuat 3 kolom, kolom tengah (col2) diberi bobot lebih besar/pas
+    col1, col2, col3 = st.columns([1, 2, 1]) 
+    
+    with col2:
+        st.image("LOGO PEMPROV BARU.png", width=60)
+    
+    # Menggunakan HTML sedikit agar teks benar-benar center mengikuti logo
+    st.markdown("<h3 style='text-align: center;'>Audit PBJ v7.1</h3>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center;'><b>Reza Saputra Azmi</b></p>", unsafe_allow_html=True)
     file_ren = st.file_uploader("Upload Data SIRUP", type=['csv'])
     file_real = st.file_uploader("Upload Data Realisasi", type=['csv'])
 

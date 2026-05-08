@@ -11,9 +11,9 @@ st.markdown("""
     .main { background-color: #f8f9fa; }
     [data-testid="stSidebar"] { background-color: #0c2461; color: white; }
     [data-testid="stMetricValue"] { font-size: 22px !important; font-weight: 700 !important; color: #0c2461 !important; }
-    [data-testid="stMetricLabel"] { font-size: 14px !important; color: #6c757d !important; }
-    .stMetric { background-color: #ffffff; padding: 15px !important; border-radius: 10px; border: 1px solid #e0e0e0; }
-    h1 { color: #0c2461; font-size: 26px !important; }
+    h1 { color: #0c2461; font-size: 24px !important; }
+    /* Memastikan tabel terlihat bersih */
+    .stDataFrame { border: 1px solid #e0e0e0; border-radius: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -39,91 +39,128 @@ with st.sidebar:
     st.divider()
     file_ren = st.file_uploader("1. Data SIRUP (CSV)", type=['csv'])
     file_real = st.file_uploader("2. Data Realisasi (CSV)", type=['csv'])
-    st.caption("E-Audit Stable v3.5")
+    st.caption("E-Audit Rekap v4.5")
 
-# --- 3. ENGINE ---
+# --- 3. CORE ENGINE ---
 if file_ren and file_real:
     df_ren, df_real = read_csv_smart(file_ren), read_csv_smart(file_real)
     df_ren.columns = df_ren.columns.str.strip()
     df_real.columns = df_real.columns.str.strip()
 
-    # Mapping Kolom
-    rup_col, val_col, pdn_col, method_col = 'Kode RUP', 'Total Nilai (Rp)', 'Nilai PDN (Rp)', 'Metode Pengadaan'
+    rup_col, val_col = 'Kode RUP', 'Total Nilai (Rp)'
 
     if rup_col in df_ren.columns and rup_col in df_real.columns:
+        # Pre-processing
         df_ren['ID_RUP_CLEAN'] = df_ren[rup_col].astype(str).apply(clean_rup)
         df_real['ID_RUP_CLEAN'] = df_real[rup_col].astype(str).apply(clean_rup)
         
-        # Bersihkan Angka
         for d in [df_ren, df_real]:
             if val_col in d.columns:
                 d[val_col] = pd.to_numeric(d[val_col].astype(str).str.replace(r'\D', '', regex=True), errors='coerce').fillna(0)
+
+        # Agregasi Realisasi per RUP
+        df_real_agg = df_real.groupby('ID_RUP_CLEAN', as_index=False).agg({
+            val_col: 'sum',
+            'Nama Satuan Kerja': 'first',
+            'Metode Pengadaan': 'first'
+        }).rename(columns={val_col: 'Anggaran_Realisasi'})
+
+        # Join untuk identifikasi Match/Mismatch
+        df_master = pd.merge(df_ren[['ID_RUP_CLEAN', 'Nama Satuan Kerja', 'Cara Pengadaan', val_col]], 
+                            df_real_agg, on='ID_RUP_CLEAN', how='outer', indicator=True)
+        df_master['Satker_Final'] = df_master['Nama Satuan Kerja_x'].combine_first(df_master['Nama Satuan Kerja_y'])
+
+        # --- TAMPILAN DASHBOARD ---
+        st.markdown("# ⚖️ REKONSILIASI PERENCANAAN & REALISASI")
         
-        df_join = pd.merge(df_real, df_ren[['ID_RUP_CLEAN', 'Cara Pengadaan', val_col, 'Nama Paket']], 
-                           on='ID_RUP_CLEAN', how='left', suffixes=('_REAL', '_REN'))
+        t1, t2 = st.tabs(["📊 Analisis Data Detail", "📑 Laporan Rekapitulasi Satker"])
 
-        # Logika Audit
-        def audit_logic(row):
-            if not row['ID_RUP_CLEAN'] or row['ID_RUP_CLEAN'] == "": return "⚠️ KODE RUP KOSONG"
-            if pd.isna(row['Nama Paket_REN']): return "⚠️ RUP TIDAK TERDAFTAR"
-            return "✅ VALID" if row[f'{val_col}_REAL'] <= row[f'{val_col}_REN'] else "⚠️ MELEBIHI PAGU"
-
-        df_join['Status Audit'] = df_join.apply(audit_logic, axis=1)
-
-        # --- 4. TAMPILAN DASHBOARD ---
-        st.markdown("# ⚖️ DASHBOARD REKONSILIASI PBH")
-        
-        # KPI Bar (Metrik Utama)
-        k1, k2, k3, k4 = st.columns(4)
-        total_real = df_real[val_col].sum()
-        k1.metric("Total Realisasi", f"Rp {total_real/1e9:.2f} M")
-        
-        valid_data = df_join[df_join['Status Audit']=="✅ VALID"]
-        efisiensi = valid_data[f'{val_col}_REN'].sum() - valid_data[f'{val_col}_REAL'].sum()
-        k2.metric("Efisiensi Pagu", f"Rp {efisiensi/1e6:.1f} Jt" if efisiensi < 1e9 else f"Rp {efisiensi/1e9:.2f} M")
-        
-        k3.metric("Kepatuhan RUP", f"{(len(valid_data)/len(df_real)*100):.1f}%")
-        k4.metric("Total Paket", f"{len(df_real)} Paket")
-
-        st.divider()
-
-        # --- 5. FILTER METODE (FITUR BARU) ---
-        col_f1, col_f2 = st.columns([1, 2])
-        with col_f1:
-            # Ambil daftar metode unik dari kolom 'Metode Pengadaan'
-            if method_col in df_join.columns:
-                list_metode = ["Semua Metode"] + sorted(df_join[method_col].unique().tolist())
-                pilihan_metode = st.selectbox("🎯 Pilih Metode Pengadaan:", list_metode)
+        with t1:
+            st.info("Pilih kondisi data yang ingin Anda lihat:")
+            kondisi = st.selectbox("Filter Kondisi:", ["Sesuai RUP", "Hanya di Realisasi", "Melebihi Pagu"])
+            
+            if kondisi == "Sesuai RUP":
+                df_view = df_master[df_master['_merge'] == 'both']
+            elif kondisi == "Hanya di Realisasi":
+                df_view = df_master[df_master['_merge'] == 'right_only']
             else:
-                st.warning("Kolom 'Metode Pengadaan' tidak ditemukan.")
-                pilihan_metode = "Semua Metode"
+                df_view = df_master[(df_master['_merge'] == 'both') & (df_master['Anggaran_Realisasi'] > df_master[val_col])]
+            
+            st.dataframe(df_view, use_container_width=True)
 
-        with col_f2:
-            search = st.text_input("🔍 Cari Nama Paket...", "")
+        with t2:
+            st.subheader("Rekapitulasi per Satuan Kerja (OPD)")
+            if st.button("🚀 Proses Laporan OPD"):
+                satkers = sorted(df_master['Satker_Final'].dropna().unique())
+                rekap_rows = []
 
-        # Terapkan Filter
-        df_f = df_join.copy()
-        if pilihan_metode != "Semua Metode":
-            df_f = df_f[df_f[method_col] == pilihan_metode]
-        if search:
-            df_f = df_f[df_f['Nama Paket_REAL'].str.contains(search, case=False, na=False)]
+                for i, s in enumerate(satkers):
+                    # Filter Data
+                    ren_s = df_ren[df_ren['Nama Satuan Kerja'] == s]
+                    real_s = df_real[df_real['Nama Satuan Kerja'] == s]
+                    master_s = df_master[df_master['Satker_Final'] == s]
 
-        # --- 6. TAMPILAN DATA ---
-        st.markdown(f"### 📋 Laporan: {pilihan_metode}")
-        
-        def style_r(v):
-            color = '#e1f5e6' if v == "✅ VALID" else '#fff3cd' if v == "⚠️ MELEBIHI PAGU" else '#ffdada'
-            return f'background-color: {color}'
-        
-        st.dataframe(df_f.style.map(style_r, subset=['Status Audit']), use_container_width=True)
-        
-        # Download Berdasarkan Hasil Filter
-        output = io.BytesIO()
-        df_f.to_excel(output, index=False)
-        st.download_button(f"📥 Ekspor Data {pilihan_metode} (.xlsx)", output.getvalue(), f"Audit_{pilihan_metode}.xlsx")
+                    # 1. RUP SECTION
+                    swa_r = ren_s[ren_s['Cara Pengadaan'].str.contains('Swakelola', case=False, na=False)]
+                    pen_r = ren_s[ren_s['Cara Pengadaan'].str.contains('Penyedia', case=False, na=False)]
+
+                    # 2. REALISASI SECTION
+                    real_swa = real_s[real_s['Metode Pengadaan'].str.contains('Swakelola', case=False, na=False)]
+                    
+                    # Sesuai RUP (Match both)
+                    match_s = master_s[master_s['_merge'] == 'both']
+                    # Tidak Sesuai RUP (Hanya di realisasi)
+                    unmatch_s = master_s[master_s['_merge'] == 'right_only']
+                    # Toko Daring / Katalog 6.0
+                    td_s = real_s[real_s['Metode Pengadaan'].str.contains('Tokodaring|E-Katalog 6.0', case=False, na=False)]
+
+                    # HITUNG SELISIH
+                    selisih_pkt = (pen_r['ID_RUP_CLEAN'].nunique() + swa_r['ID_RUP_CLEAN'].nunique()) - real_s['ID_RUP_CLEAN'].nunique()
+                    selisih_ang = ren_s[val_col].sum() - real_s[val_col].sum()
+
+                    # LOGIKA IDENTIFIKASI
+                    if unmatch_s.shape[0] > 0:
+                        identifikasi = "Jumlah Kode RUP di Realisasi Lebih Banyak dari Perencanaan"
+                    elif selisih_ang < 0:
+                        identifikasi = "Kemungkinan ada perubahan metode atau Overbudget"
+                    else:
+                        identifikasi = "Sesuai"
+
+                    rekap_rows.append({
+                        'No.': i + 1,
+                        'OPD': s,
+                        'RUP Swakelola (Paket)': swa_r.shape[0],
+                        'RUP Swakelola (Anggaran)': swa_r[val_col].sum(),
+                        'RUP Penyedia (Paket)': pen_r.shape[0],
+                        'RUP Penyedia (Anggaran)': pen_r[val_col].sum(),
+                        'Real Swakelola (Paket)': real_swa['ID_RUP_CLEAN'].nunique(),
+                        'Real Swakelola (Anggaran)': real_swa[val_col].sum(),
+                        'Real Sesuai RUP (Paket)': match_s.shape[0],
+                        'Real Sesuai RUP (Anggaran)': match_s['Anggaran_Realisasi'].sum(),
+                        'Real Tidak Sesuai RUP (Paket)': unmatch_s.shape[0],
+                        'Real Tidak Sesuai RUP (Anggaran)': unmatch_s['Anggaran_Realisasi'].sum(),
+                        'Toko Daring (Anggaran)': td_s[val_col].sum(),
+                        'Selisih Paket': selisih_pkt,
+                        'Selisih Anggaran': selisih_ang,
+                        'Hasil Identifikasi': identifikasi
+                    })
+
+                df_rekap = pd.DataFrame(rekap_rows)
+
+                # STYLING BARIS (HIJAU/MERAH)
+                def color_rows(row):
+                    if row['Hasil Identifikasi'] != "Sesuai":
+                        return ['background-color: #ffcccc'] * len(row)
+                    return ['background-color: #ccffcc'] * len(row)
+
+                st.dataframe(df_rekap.style.apply(color_rows, axis=1), use_container_width=True)
+
+                # DOWNLOAD
+                out = io.BytesIO()
+                df_rekap.to_excel(out, index=False)
+                st.download_button("📥 Download Laporan Rekapitulasi", out.getvalue(), "Laporan_PBJ_Lampung.xlsx")
 
     else:
-        st.error("Format kolom 'Kode RUP' tidak ditemukan.")
+        st.error("Kolom 'Kode RUP' atau 'Total Nilai (Rp)' tidak ditemukan.")
 else:
-    st.markdown("# ⚖️ Sistem Audit Digital PBJ")
-    st.info("Silakan unggah file CSV SIRUP dan E-Katalog di sidebar untuk memulai.")
+    st.info("Silakan unggah file SIRUP dan Realisasi untuk memulai audit.")

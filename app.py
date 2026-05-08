@@ -29,7 +29,7 @@ def read_csv_smart(file):
 
 # --- 2. SIDEBAR ---
 with st.sidebar:
-    st.image("https://drive.google.com/file/d/1U-LijtI7VWI_ds89rs9j-j9QeLjXKN8h/view?usp=sharing", width=60)
+    st.image("LOGO PEMPROV BARU.png", width=60)
     st.title("PEMBINAAN DAN ADVOKASI")
     st.markdown("**Reza Saputra Azmi**")
     file_ren = st.file_uploader("Upload Data SIRUP", type=['csv'])

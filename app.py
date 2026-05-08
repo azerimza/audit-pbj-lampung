@@ -2,18 +2,17 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import io
+import plotly.express as px
 
-# --- 1. KONFIGURASI HALAMAN ---
+# --- 1. CONFIG ---
 st.set_page_config(page_title="E-Audit PBJ Lampung", page_icon="⚖️", layout="wide")
 
 st.markdown("""
     <style>
     .main { background-color: #f8f9fa; }
     [data-testid="stSidebar"] { background-color: #0c2461; color: white; }
-    [data-testid="stMetricValue"] { font-size: 22px !important; font-weight: 700 !important; color: #0c2461 !important; }
-    h1 { color: #0c2461; font-size: 24px !important; }
-    /* Memastikan tabel terlihat bersih */
-    .stDataFrame { border: 1px solid #e0e0e0; border-radius: 10px; }
+    .stMetric { background-color: white; padding: 15px; border-radius: 10px; border-left: 5px solid #0c2461; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    h1, h2 { color: #0c2461; font-weight: 700; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -33,15 +32,14 @@ def read_csv_smart(file):
 # --- 2. SIDEBAR ---
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Lampung_Coats_of_arms.svg/1200px-Lampung_Coats_of_arms.svg.png", width=60)
-    st.markdown("### **ADMIN SISTEM**")
-    st.markdown(f"**Analis:** Reza Saputra Azmi")
-    st.markdown("**Unit:** Biro PBJ Prov. Lampung")
+    st.markdown("### **SISTEM AUDIT DIGITAL**")
+    st.markdown("**Analis:** Reza Saputra Azmi\n\n**Biro PBJ Lampung**")
     st.divider()
-    file_ren = st.file_uploader("1. Data SIRUP (CSV)", type=['csv'])
-    file_real = st.file_uploader("2. Data Realisasi (CSV)", type=['csv'])
-    st.caption("E-Audit Rekap v4.5")
+    file_ren = st.file_uploader("1. Upload Data SIRUP (CSV)", type=['csv'])
+    file_real = st.file_uploader("2. Upload Data Realisasi (CSV)", type=['csv'])
+    st.caption("v5.2 | Budget Tracking Enabled")
 
-# --- 3. CORE ENGINE ---
+# --- 3. ENGINE ---
 if file_ren and file_real:
     df_ren, df_real = read_csv_smart(file_ren), read_csv_smart(file_real)
     df_ren.columns = df_ren.columns.str.strip()
@@ -50,7 +48,6 @@ if file_ren and file_real:
     rup_col, val_col = 'Kode RUP', 'Total Nilai (Rp)'
 
     if rup_col in df_ren.columns and rup_col in df_real.columns:
-        # Pre-processing
         df_ren['ID_RUP_CLEAN'] = df_ren[rup_col].astype(str).apply(clean_rup)
         df_real['ID_RUP_CLEAN'] = df_real[rup_col].astype(str).apply(clean_rup)
         
@@ -58,109 +55,92 @@ if file_ren and file_real:
             if val_col in d.columns:
                 d[val_col] = pd.to_numeric(d[val_col].astype(str).str.replace(r'\D', '', regex=True), errors='coerce').fillna(0)
 
-        # Agregasi Realisasi per RUP
-        df_real_agg = df_real.groupby('ID_RUP_CLEAN', as_index=False).agg({
-            val_col: 'sum',
-            'Nama Satuan Kerja': 'first',
-            'Metode Pengadaan': 'first'
-        }).rename(columns={val_col: 'Anggaran_Realisasi'})
+        # Perhitungan Rekap per OPD
+        satkers = sorted(list(set(df_ren['Nama Satuan Kerja'].dropna().unique()) | set(df_real['Nama Satuan Kerja'].dropna().unique())))
+        list_rekap = []
+        for s in satkers:
+            ren_s = df_ren[df_ren['Nama Satuan Kerja'] == s]
+            real_s = df_real[df_real['Nama Satuan Kerja'] == s]
+            
+            ang_ren = ren_s[val_col].sum()
+            ang_real = real_s[val_col].sum()
+            sisa = ang_ren - ang_real
+            
+            list_rekap.append({
+                'Nama Satuan Kerja': s,
+                'Paket Rencana': len(ren_s),
+                'Paket Realisasi': real_s['ID_RUP_CLEAN'].nunique(),
+                'Anggaran Rencana': ang_ren,
+                'Anggaran Realisasi': ang_real,
+                'Sisa Anggaran': sisa,
+                'Persentase Penyerapan': (ang_real / ang_ren * 100) if ang_ren > 0 else 0
+            })
+        df_rekap = pd.DataFrame(list_rekap)
 
-        # Join untuk identifikasi Match/Mismatch
-        df_master = pd.merge(df_ren[['ID_RUP_CLEAN', 'Nama Satuan Kerja', 'Cara Pengadaan', val_col]], 
-                            df_real_agg, on='ID_RUP_CLEAN', how='outer', indicator=True)
-        df_master['Satker_Final'] = df_master['Nama Satuan Kerja_x'].combine_first(df_master['Nama Satuan Kerja_y'])
-
-        # --- TAMPILAN DASHBOARD ---
-        st.markdown("# ⚖️ REKONSILIASI PERENCANAAN & REALISASI")
+        st.markdown("# ⚖️ ANALISIS ANGGARAN & PENYERAPAN")
         
-        t1, t2 = st.tabs(["📊 Analisis Data Detail", "📑 Laporan Rekapitulasi Satker"])
+        # --- TOP METRICS ---
+        m1, m2, m3 = st.columns(3)
+        total_ren = df_rekap['Anggaran Rencana'].sum()
+        total_real = df_rekap['Anggaran Realisasi'].sum()
+        total_sisa = total_ren - total_real
+        
+        m1.metric("Total Pagu Rencana", f"Rp {total_ren/1e9:.2f} M")
+        m2.metric("Total Realisasi", f"Rp {total_real/1e9:.2f} M")
+        m3.metric("Total Sisa Anggaran", f"Rp {total_sisa/1e9:.2f} M", delta=f"{(total_real/total_ren*100):.1f}% Serap", delta_color="normal")
+
+        st.divider()
+
+        # --- TABS ---
+        t1, t2 = st.tabs(["📊 Statistik Sisa Anggaran", "📝 Tabel Detail OPD"])
 
         with t1:
-            st.info("Pilih kondisi data yang ingin Anda lihat:")
-            kondisi = st.selectbox("Filter Kondisi:", ["Sesuai RUP", "Hanya di Realisasi", "Melebihi Pagu"])
+            st.subheader("Visualisasi Sisa Anggaran per OPD")
+            # Grafik Sisa Anggaran
+            fig_sisa = px.bar(df_rekap, x='Nama Satuan Kerja', y='Sisa Anggaran', 
+                              color='Sisa Anggaran', 
+                              color_continuous_scale='RdYlGn', # Merah jika sedikit/minus, Hijau jika banyak sisa
+                              title='Distribusi Sisa Anggaran (Efisiensi)')
+            st.plotly_chart(fig_sisa, use_container_width=True)
             
-            if kondisi == "Sesuai RUP":
-                df_view = df_master[df_master['_merge'] == 'both']
-            elif kondisi == "Hanya di Realisasi":
-                df_view = df_master[df_master['_merge'] == 'right_only']
-            else:
-                df_view = df_master[(df_master['_merge'] == 'both') & (df_master['Anggaran_Realisasi'] > df_master[val_col])]
-            
-            st.dataframe(df_view, use_container_width=True)
+            # Grafik Penyerapan
+            fig_pie = px.sunburst(df_rekap, path=['Nama Satuan Kerja'], values='Anggaran Realisasi',
+                                  title='Proporsi Realisasi Anggaran antar OPD')
+            st.plotly_chart(fig_pie, use_container_width=True)
 
         with t2:
-            st.subheader("Rekapitulasi per Satuan Kerja (OPD)")
-            if st.button("🚀 Proses Laporan OPD"):
-                satkers = sorted(df_master['Satker_Final'].dropna().unique())
-                rekap_rows = []
+            st.subheader("Data Lengkap Penyerapan")
+            
+            # Formatting untuk tabel
+            def format_rupiah(val):
+                return f"Rp {val:,.0f}"
+            
+            def highlight_sisa(s):
+                return 'color: red; font-weight: bold' if s < 0 else 'color: green'
 
-                for i, s in enumerate(satkers):
-                    # Filter Data
-                    ren_s = df_ren[df_ren['Nama Satuan Kerja'] == s]
-                    real_s = df_real[df_real['Nama Satuan Kerja'] == s]
-                    master_s = df_master[df_master['Satker_Final'] == s]
+            st.dataframe(
+                df_rekap.style.format({
+                    'Anggaran Rencana': format_rupiah,
+                    'Anggaran Realisasi': format_rupiah,
+                    'Sisa Anggaran': format_rupiah,
+                    'Persentase Penyerapan': '{:.2f}%'
+                }).applymap(highlight_sisa, subset=['Sisa Anggaran']),
+                use_container_width=True
+            )
+            
+            # Download
+            out = io.BytesIO()
+            df_rekap.to_excel(out, index=False)
+            st.download_button("📥 Ekspor Laporan Sisa Anggaran (.xlsx)", out.getvalue(), "Rekap_Sisa_Anggaran_PBJ.xlsx")
 
-                    # 1. RUP SECTION
-                    swa_r = ren_s[ren_s['Cara Pengadaan'].str.contains('Swakelola', case=False, na=False)]
-                    pen_r = ren_s[ren_s['Cara Pengadaan'].str.contains('Penyedia', case=False, na=False)]
-
-                    # 2. REALISASI SECTION
-                    real_swa = real_s[real_s['Metode Pengadaan'].str.contains('Swakelola', case=False, na=False)]
-                    
-                    # Sesuai RUP (Match both)
-                    match_s = master_s[master_s['_merge'] == 'both']
-                    # Tidak Sesuai RUP (Hanya di realisasi)
-                    unmatch_s = master_s[master_s['_merge'] == 'right_only']
-                    # Toko Daring / Katalog 6.0
-                    td_s = real_s[real_s['Metode Pengadaan'].str.contains('Tokodaring|E-Katalog 6.0', case=False, na=False)]
-
-                    # HITUNG SELISIH
-                    selisih_pkt = (pen_r['ID_RUP_CLEAN'].nunique() + swa_r['ID_RUP_CLEAN'].nunique()) - real_s['ID_RUP_CLEAN'].nunique()
-                    selisih_ang = ren_s[val_col].sum() - real_s[val_col].sum()
-
-                    # LOGIKA IDENTIFIKASI
-                    if unmatch_s.shape[0] > 0:
-                        identifikasi = "Jumlah Kode RUP di Realisasi Lebih Banyak dari Perencanaan"
-                    elif selisih_ang < 0:
-                        identifikasi = "Kemungkinan ada perubahan metode atau Overbudget"
-                    else:
-                        identifikasi = "Sesuai"
-
-                    rekap_rows.append({
-                        'No.': i + 1,
-                        'OPD': s,
-                        'RUP Swakelola (Paket)': swa_r.shape[0],
-                        'RUP Swakelola (Anggaran)': swa_r[val_col].sum(),
-                        'RUP Penyedia (Paket)': pen_r.shape[0],
-                        'RUP Penyedia (Anggaran)': pen_r[val_col].sum(),
-                        'Real Swakelola (Paket)': real_swa['ID_RUP_CLEAN'].nunique(),
-                        'Real Swakelola (Anggaran)': real_swa[val_col].sum(),
-                        'Real Sesuai RUP (Paket)': match_s.shape[0],
-                        'Real Sesuai RUP (Anggaran)': match_s['Anggaran_Realisasi'].sum(),
-                        'Real Tidak Sesuai RUP (Paket)': unmatch_s.shape[0],
-                        'Real Tidak Sesuai RUP (Anggaran)': unmatch_s['Anggaran_Realisasi'].sum(),
-                        'Toko Daring (Anggaran)': td_s[val_col].sum(),
-                        'Selisih Paket': selisih_pkt,
-                        'Selisih Anggaran': selisih_ang,
-                        'Hasil Identifikasi': identifikasi
-                    })
-
-                df_rekap = pd.DataFrame(rekap_rows)
-
-                # STYLING BARIS (HIJAU/MERAH)
-                def color_rows(row):
-                    if row['Hasil Identifikasi'] != "Sesuai":
-                        return ['background-color: #ffcccc'] * len(row)
-                    return ['background-color: #ccffcc'] * len(row)
-
-                st.dataframe(df_rekap.style.apply(color_rows, axis=1), use_container_width=True)
-
-                # DOWNLOAD
-                out = io.BytesIO()
-                df_rekap.to_excel(out, index=False)
-                st.download_button("📥 Download Laporan Rekapitulasi", out.getvalue(), "Laporan_PBJ_Lampung.xlsx")
+        # --- ALERTS ---
+        if any(df_rekap['Sisa Anggaran'] < 0):
+            st.error("### 🚨 PERINGATAN DEFISIT")
+            defisit_opd = df_rekap[df_rekap['Sisa Anggaran'] < 0]
+            for _, r in defisit_opd.iterrows():
+                st.warning(f"**{r['Nama Satuan Kerja']}** melampaui pagu sebesar **Rp {abs(r['Sisa Anggaran']):,.0f}**")
 
     else:
-        st.error("Kolom 'Kode RUP' atau 'Total Nilai (Rp)' tidak ditemukan.")
+        st.error("Header kolom 'Kode RUP' atau 'Total Nilai (Rp)' tidak sesuai.")
 else:
-    st.info("Silakan unggah file SIRUP dan Realisasi untuk memulai audit.")
+    st.info("Upload file CSV untuk melihat sisa anggaran.")

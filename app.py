@@ -1,4 +1,4 @@
-# --- 5. TABEL LAPORAN (FIXED NAMEERROR) ---
+# --- 5. TABEL LAPORAN (PERBAIKAN TYPO VARIABEL) ---
     st.divider()
     st.subheader("📑 Laporan Audit Rekonsiliasi Per Satker")
     
@@ -17,14 +17,14 @@
         
         # Filter berdasarkan Kat_Audit (Sumber Transaksi)
         tokodaring_s = real_s[real_s['Kat_Audit'] == 'Tokodaring']
-        swakelola_real_s = real_s[real_s['Kat_Audit'] == 'Swakelola'] # Variabel ini
+        swakelola_real_s = real_s[real_s['Kat_Audit'] == 'Swakelola'] # Nama variabel harus sama
 
         rekap_list.append({
             'No': i, 
             'Nama Satuan Kerja': s,
             'Sesuai RUP (Pkt)': len(sesuai_rup_df),
             'Sesuai RUP (Angg)': sesuai_rup_df[val_col + '_y'].sum(),
-            'Swakelola Realisasi (Pkt)': len(swakelola_real_s), # SUDAH DIPERBAIKI
+            'Swakelola Realisasi (Pkt)': len(swakelola_real_s), # SUDAH SAMA SEKARANG
             'Swakelola Realisasi (Angg)': swakelola_real_s[val_col].sum(),
             'Tokodaring (Pkt)': len(tokodaring_s),
             'Tokodaring (Angg)': tokodaring_s[val_col].sum(),
@@ -33,6 +33,3 @@
             'Selisih Anggaran': ren_s[val_col].sum() - real_s[val_col].sum(),
             'Identifikasi': "Overbudget" if (sesuai_rup_df[val_col + '_y'] > sesuai_rup_df[val_col + '_x']).any() else "Normal"
         })
-
-    df_final = pd.DataFrame(rekap_list)
-    st.dataframe(df_final.style.format(precision=0, thousands=","), use_container_width=True)

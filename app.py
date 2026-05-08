@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 import io
 
-# --- 1. CONFIG & STYLING (STYLE V6.1) ---
+# --- 1. CONFIG & STYLING (KUNCI VISUAL V6.1) ---
 st.set_page_config(page_title="Audit Rekonsiliasi PBJ Lampung", layout="wide")
 
 st.markdown("""
@@ -30,7 +30,7 @@ def read_csv_smart(file):
 # --- 2. SIDEBAR ---
 with st.sidebar:
     st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Lampung_Coats_of_arms.svg/1200px-Lampung_Coats_of_arms.svg.png", width=60)
-    st.title("Audit PBJ v7.0")
+    st.title("Audit PBJ v7.1")
     st.markdown("**Reza Saputra Azmi**")
     file_ren = st.file_uploader("Upload Data SIRUP", type=['csv'])
     file_real = st.file_uploader("Upload Data Realisasi", type=['csv'])
@@ -43,7 +43,7 @@ if file_ren and file_real:
         df.columns = df.columns.str.strip()
         df[val_col] = pd.to_numeric(df[val_col].astype(str).str.replace(r'\D', '', regex=True), errors='coerce').fillna(0)
 
-    # PEMISAHAN KATEGORI (POIN 4)
+    # PEMISAHAN KATEGORI
     def map_kat(m):
         m = str(m).lower()
         if 'tokodaring' in m or 'toko daring' in m: return 'Tokodaring'
@@ -73,12 +73,14 @@ if file_ren and file_real:
     c3.markdown(f'<div class="stat-card"><div class="stat-label">TOTAL REALISASI</div><div class="stat-value">Rp {df_real[val_col].sum():,.0f}</div></div>', unsafe_allow_html=True)
     c4.markdown(f'<div class="stat-card"><div class="stat-label">EFISIENSI ANGGARAN</div><div class="stat-value">Rp {df_ren[val_col].sum() - df_real[val_col].sum():,.0f}</div></div>', unsafe_allow_html=True)
 
-    # --- 4. LAPORAN REKAPITULASI (POIN 5 + SELISIH PAKET) ---
+    # --- 4. LAPORAN REKAPITULASI (FIXED LOGIC) ---
     st.divider()
     st.subheader("📑 Laporan Audit Rekonsiliasi Per Satker")
     
     rekap_list = []
-    for i, s in enumerate(sorted(df_ren[satker_col].dropna().unique()), 1):
+    satker_list = sorted(df_ren[satker_col].dropna().unique())
+    
+    for i, s in enumerate(satker_list, 1):
         ren_s = df_ren[df_ren[satker_col] == s]
         real_s = df_real_agg[df_real_agg[satker_col] == s]
         merge_s = pd.merge(ren_s[[rup_col, val_col]], real_s[[rup_col, val_col, 'Kat_Audit']], on=rup_col, how='right', indicator=True)
@@ -87,10 +89,9 @@ if file_ren and file_real:
         py_ren = ren_s[~ren_s['Jenis Pengadaan'].str.contains('Swakelola', na=False)]
         sesuai_rup_df = merge_s[merge_s['_merge'] == 'both']
         
-        # Hitung Selisih Paket
-        total_paket_rencana = len(ren_s)
-        total_paket_realisasi_sesuai = len(sesuai_rup_df)
-        selisih_paket = total_paket_rencana - total_paket_realisasi_sesuai
+        # Hitung Selisih
+        selisih_pkt = len(ren_s) - len(sesuai_rup_df)
+        selisih_angg = ren_s[val_col].sum() - real_s[val_col].sum()
 
         # Identifikasi Overbudget
         over = sesuai_rup_df[sesuai_rup_df[val_col + '_y'] > sesuai_rup_df[val_col + '_x']]
@@ -103,4 +104,30 @@ if file_ren and file_real:
             'RUP Penyedia (Pkt)': len(py_ren), 
             'RUP Penyedia (Angg)': py_ren[val_col].sum(),
             'Real Swakelola (Angg)': real_s[real_s['Kat_Audit'] == 'Swakelola'][val_col].sum(),
-            'Penyedia Sesuai RUP (Pkt)': total_paket_realisasi_sesuai,
+            'Penyedia Sesuai RUP (Pkt)': len(sesuai_rup_df),
+            'Penyedia Sesuai RUP (Angg)': sesuai_rup_df[val_col + '_y'].sum(),
+            'Penyedia Tidak Sesuai (Angg)': merge_s[merge_s['_merge'] == 'right_only'][val_col + '_y'].sum(),
+            'Penyedia Tokodaring (Angg)': real_s[real_s['Kat_Audit'] == 'Tokodaring'][val_col].sum(),
+            'Selisih Paket': selisih_pkt,
+            'Selisih Anggaran': selisih_angg,
+            'Identifikasi': f"Overbudget: {len(over)} pkt" if len(over) > 0 else "Normal"
+        })
+
+    df_final = pd.DataFrame(rekap_list)
+    st.dataframe(df_final.style.format(precision=0, thousands=","), use_container_width=True)
+
+    # --- 5. EXPORT EXCEL (FIXED CORRUPTION) ---
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        df_final.to_excel(writer, sheet_name='Laporan_Audit', index=False)
+        writer.close() # Pastikan file ditutup dengan benar
+    
+    st.download_button(
+        label="📥 Download Laporan Lengkap v7.1", 
+        data=buffer.getvalue(), 
+        file_name="Laporan_Audit_PBJ_Lampung.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+else:
+    st.info("Silakan unggah data SIRUP dan Realisasi untuk memulai audit.")

@@ -4,7 +4,7 @@ import plotly.express as px
 import io
 
 # --- 1. CONFIG & STYLING (KUNCI VISUAL V6.1) ---
-st.set_page_config(page_title="Audit Rekonsiliasi PBJ Lampung", layout="wide")
+st.set_page_config(page_title="REKONSILIASI DATA", layout="wide")
 
 st.markdown("""
     <style>
@@ -29,8 +29,8 @@ def read_csv_smart(file):
 
 # --- 2. SIDEBAR ---
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/c/ca/Lampung_Coats_of_arms.svg/1200px-Lampung_Coats_of_arms.svg.png", width=60)
-    st.title("Audit PBJ v7.1")
+    st.image("https://drive.google.com/file/d/1U-LijtI7VWI_ds89rs9j-j9QeLjXKN8h/view?usp=sharing", width=60)
+    st.title("PEMBINAAN DAN ADVOKASI")
     st.markdown("**Reza Saputra Azmi**")
     file_ren = st.file_uploader("Upload Data SIRUP", type=['csv'])
     file_real = st.file_uploader("Upload Data Realisasi", type=['csv'])

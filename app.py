@@ -42,50 +42,57 @@ if file_ren and file_real:
     df_real.columns = df_real.columns.str.strip()
     
     val_col = 'Total Nilai (Rp)'
-    # Menggunakan 'Sumber Transaksi' sebagai filter utama sesuai permintaan Mas
     sumber_col = 'Sumber Transaksi' 
 
     if val_col in df_real.columns and sumber_col in df_real.columns:
-        # Bersihkan angka
+        # Bersihkan angka (menghilangkan Rp, titik, koma agar jadi angka murni)
         df_real[val_col] = pd.to_numeric(df_real[val_col].astype(str).str.replace(r'\D', '', regex=True), errors='coerce').fillna(0)
         df_ren[val_col] = pd.to_numeric(df_ren[val_col].astype(str).str.replace(r'\D', '', regex=True), errors='coerce').fillna(0)
 
-        # --- FILTERING DATA BERDASARKAN SUMBER TRANSAKSI ---
-        # Mencari Katalog 5.0, 6.0, atau umum
-        df_kat = df_real[df_real[sumber_col].str.contains('Katalog|E-Purchasing|Katalog 5|Katalog 6', case=False, na=False)]
+        # --- LOGIKA FILTER EKSKLUSI ---
+        # 1. Tokodaring (Spesifik)
+        is_tokodaring = df_real[sumber_col].str.contains('Tokodaring|Toko Daring', case=False, na=False)
+        df_td = df_real[is_tokodaring]
         
-        # Mencari Tokodaring
-        df_td = df_real[df_real[sumber_col].str.contains('Tokodaring|Toko Daring|Daring', case=False, na=False)]
+        # 2. E-Katalog (Semua Realisasi yang BUKAN Tokodaring)
+        df_kat = df_real[~is_tokodaring]
 
-        # --- UI DISPLAY (MENURUN) ---
-        st.markdown("# ⚖️ Laporan Realisasi per Sumber Transaksi")
+        # --- UI DISPLAY (VERTIKAL & DETAIL) ---
+        st.markdown("# ⚖️ Laporan Realisasi Anggaran Detail")
 
-        # 1. TOTAL RENCANA
+        # TOTAL PAGU
         st.markdown(f"""<div class="metric-card" style="border-left-color: #0c2461;">
             <div class="metric-label">TOTAL PAGU RENCANA (SIRUP)</div>
             <div class="metric-value">Rp {df_ren[val_col].sum():,.0f}</div>
         </div>""", unsafe_allow_html=True)
 
-        # 2. KATALOG
+        # REALISASI E-KATALOG (Hasil Eksklusi Tokodaring)
         st.markdown(f"""<div class="metric-card" style="border-left-color: #007bff;">
-            <div class="metric-label">REALISASI E-KATALOG (5.0 & 6.0)</div>
+            <div class="metric-label">REALISASI E-KATALOG (5.0, 6.0 & Lainnya)</div>
             <div class="metric-value">Rp {df_kat[val_col].sum():,.0f}</div>
-            <div class="sub-info">Terdeteksi {len(df_kat)} Paket dari sumber "{sumber_col}"</div>
+            <div class="sub-info">Total: {len(df_kat)} Paket (Semua transaksi selain Tokodaring)</div>
         </div>""", unsafe_allow_html=True)
 
-        # 3. TOKODARING
+        # REALISASI TOKODARING
         st.markdown(f"""<div class="metric-card" style="border-left-color: #ff9900;">
             <div class="metric-label">REALISASI TOKODARING</div>
             <div class="metric-value">Rp {df_td[val_col].sum():,.0f}</div>
-            <div class="sub-info">Terdeteksi {len(df_td)} Paket dari sumber "{sumber_col}"</div>
+            <div class="sub-info">Total: {len(df_td)} Paket</div>
         </div>""", unsafe_allow_html=True)
 
-        # Debugging: Jika masih 0, tampilkan unik kolom sumber transaksi
-        if df_kat[val_col].sum() == 0 and df_td[val_col].sum() == 0:
-            st.warning("⚠️ Data Katalog/Tokodaring tidak muncul. Memeriksa isi kolom 'Sumber Transaksi'...")
-            st.write("Isi unik dalam kolom Sumber Transaksi Anda adalah:")
-            st.write(df_real[sumber_col].unique())
+        # SISA ANGGARAN
+        total_real = df_real[val_col].sum()
+        total_pagu = df_ren[val_col].sum()
+        sisa = total_pagu - total_real
+        sisa_color = "#28a745" if sisa >= 0 else "#dc3545"
+
+        st.markdown(f"""<div class="metric-card" style="border-left-color: {sisa_color};">
+            <div class="metric-label">SISA PAGU ANGGARAN</div>
+            <div class="metric-value">Rp {sisa:,.0f}</div>
+            <div class="sub-info">Status: {"Aman (Efisiensi)" if sisa >= 0 else "Overbudget"}</div>
+        </div>""", unsafe_allow_html=True)
+
     else:
-        st.error(f"Kolom '{sumber_col}' atau '{val_col}' tidak ditemukan di file Realisasi.")
+        st.error(f"Kolom '{sumber_col}' atau '{val_col}' tidak ditemukan.")
 else:
-    st.info("Menunggu upload file...")
+    st.info("Menunggu data diunggah untuk memulai proses audit.")

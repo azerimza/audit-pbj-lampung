@@ -27,12 +27,10 @@ def read_csv_smart(file):
         file.seek(0)
         return pd.read_csv(file, sep=None, engine='python', encoding='cp1252')
 
-# --- 2. SIDEBAR (Tempat Variabel file_ren & file_real Dibuat) ---
+# --- 2. SIDEBAR ---
 with st.sidebar:
-    # Header Logo & Nama
     col1, col2, col3 = st.columns([1, 2, 1]) 
     with col2:
-        # Pastikan file gambar ini sudah di-upload ke GitHub Mas
         try:
             st.image("LOGO PEMPROV BARU.png", width=60)
         except:
@@ -42,24 +40,21 @@ with st.sidebar:
     st.markdown("<p style='text-align: center;'><b>Reza Saputra Azmi</b></p>", unsafe_allow_html=True)
     st.divider()
     
-    # --- INI ADALAH DEFINISI VARIABELNYA ---
     file_ren = st.file_uploader("1. Upload Data SIRUP", type=['csv'])
     file_real = st.file_uploader("2. Upload Data Realisasi", type=['csv'])
 
-# --- 3. LOGIKA PEMROSESAN (Hanya jalan jika file sudah di-upload) ---
+# --- 3. LOGIKA PEMROSESAN ---
 if file_ren and file_real:
     df_ren, df_real = read_csv_smart(file_ren), read_csv_smart(file_real)
     val_col, rup_col, satker_col = 'Total Nilai (Rp)', 'Kode RUP', 'Nama Satuan Kerja'
     
-    # Bersihkan nama kolom
     df_ren.columns = df_ren.columns.str.strip()
     df_real.columns = df_real.columns.str.strip()
 
-    # FIX: Paksa Kode RUP jadi String untuk mencegah ValueError saat merge
+    # Paksa Kode RUP jadi String
     df_ren[rup_col] = df_ren[rup_col].astype(str).str.strip().str.replace('.0', '', regex=False)
     df_real[rup_col] = df_real[rup_col].astype(str).str.strip().str.replace('.0', '', regex=False)
 
-    # Konversi Nilai Anggaran
     for df in [df_ren, df_real]:
         if val_col in df.columns:
             df[val_col] = pd.to_numeric(df[val_col].astype(str).str.replace(r'\D', '', regex=True), errors='coerce').fillna(0)
@@ -68,17 +63,15 @@ if file_ren and file_real:
     def map_kat(m):
         m = str(m).lower()
         if 'tokodaring' in m or 'toko daring' in m: return 'Tokodaring'
-        if 'katalog 5' in m: return 'E-Katalog 5.0'
-        if 'katalog 6' in m: return 'E-Katalog 6.0'
+        if 'katalog' in m: return 'E-Katalog'
         if 'swakelola' in m: return 'Swakelola'
-        return 'Lainnya'
+        return 'Penyedia Lainnya'
 
     if 'Metode Pengadaan' in df_real.columns:
         df_real['Kat_Audit'] = df_real['Metode Pengadaan'].apply(map_kat)
     else:
         df_real['Kat_Audit'] = 'Lainnya'
     
-    # AGREGASI KODE RUP (Menghindari Duplikasi Realisasi)
     df_real_agg = df_real.groupby(rup_col).agg({
         val_col: 'sum', satker_col: 'first', 'Kat_Audit': 'first', 'Jenis Pengadaan': 'first'
     }).reset_index()
@@ -94,7 +87,7 @@ if file_ren and file_real:
     c3.markdown(f'<div class="stat-card"><div class="stat-label">TOTAL REALISASI</div><div class="stat-value">Rp {df_real[val_col].sum():,.0f}</div></div>', unsafe_allow_html=True)
     c4.markdown(f'<div class="stat-card"><div class="stat-label">EFISIENSI ANGGARAN</div><div class="stat-value">Rp {df_ren[val_col].sum() - df_real[val_col].sum():,.0f}</div></div>', unsafe_allow_html=True)
 
-    # --- 5. TABEL LAPORAN ---
+    # --- 5. TABEL LAPORAN (PENAMBAHAN KOLOM BARU) ---
     st.divider()
     st.subheader("📑 Laporan Audit Rekonsiliasi Per Satker")
     
@@ -109,15 +102,19 @@ if file_ren and file_real:
         sw_ren = ren_s[ren_s['Jenis Pengadaan'].str.contains('Swakelola', na=False)]
         py_ren = ren_s[~ren_s['Jenis Pengadaan'].str.contains('Swakelola', na=False)]
         sesuai_rup_df = merge_s[merge_s['_merge'] == 'both']
+        tidak_sesuai_df = merge_s[merge_s['_merge'] == 'right_only']
         
+        # Filter Tokodaring
+        tokodaring_s = real_s[real_s['Kat_Audit'] == 'Tokodaring']
+
         rekap_list.append({
             'No': i, 'Nama Satuan Kerja': s,
-            'RUP Swakelola (Pkt)': len(sw_ren), 'RUP Swakelola (Angg)': sw_ren[val_col].sum(),
-            'RUP Penyedia (Pkt)': len(py_ren), 'RUP Penyedia (Angg)': py_ren[val_col].sum(),
-            'Real Swakelola (Angg)': real_s[real_s['Kat_Audit'] == 'Swakelola'][val_col].sum(),
-            'Penyedia Sesuai RUP (Pkt)': len(sesuai_rup_df),
-            'Penyedia Sesuai RUP (Angg)': sesuai_rup_df[val_col + '_y'].sum(),
-            'Penyedia Tidak Sesuai (Angg)': merge_s[merge_s['_merge'] == 'right_only'][val_col + '_y'].sum(),
+            'RUP Swakelola (Pkt)': len(sw_ren), 
+            'RUP Penyedia (Pkt)': len(py_ren),
+            'Sesuai Rencana (Pkt)': len(sesuai_rup_df),
+            'Tidak Sesuai Rencana (Pkt)': len(tidak_sesuai_df), # KOLOM BARU
+            'Penyedia Tokodaring (Pkt)': len(tokodaring_s),     # KOLOM BARU
+            'Penyedia Tokodaring (Angg)': tokodaring_s[val_col].sum(),
             'Selisih Paket': len(ren_s) - len(sesuai_rup_df),
             'Selisih Anggaran': ren_s[val_col].sum() - real_s[val_col].sum(),
             'Identifikasi': "Overbudget" if (sesuai_rup_df[val_col + '_y'] > sesuai_rup_df[val_col + '_x']).any() else "Normal"
@@ -130,7 +127,7 @@ if file_ren and file_real:
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
         df_final.to_excel(writer, sheet_name='Laporan_Audit', index=False)
-    st.download_button("📥 Download Laporan Lengkap", buffer.getvalue(), "Laporan_Audit_PBJ.xlsx")
+    st.download_button("📥 Download Laporan Lengkap v7.2", buffer.getvalue(), "Laporan_Audit_PBJ.xlsx")
 
 else:
-    st.info("👋 Selamat Datang! Silakan unggah data SIRUP dan Realisasi pada sidebar untuk memulai.")
+    st.info("👋 Silakan unggah data SIRUP dan Realisasi untuk memulai.")

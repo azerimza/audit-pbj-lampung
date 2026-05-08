@@ -4,3 +4,4 @@ openpyxl
 thefuzz
 python-Levenshtein
 xlsxwriter
+plotly

@@ -17,8 +17,8 @@ body { background-color: #f4f6f7; }
 # --- LOGO STATIS DI TENGAH ---
 col1, col2, col3 = st.columns([1,2,1])
 with col2:
-    st.image("LOGO PEMPROV BARU.png", width=120)  # panggil logo langsung
-    st.markdown("<h2 style='text-align: center;'>📌 Rekonsiliasi SIRUP & Realisasi</h2>", unsafe_allow_html=True)
+    st.image("LOGO PEMPROV BARU.png", width=300)  # panggil logo langsung
+    st.markdown("<h2 style='text-align: center;'>PEMBINAAN DAN ADVOKASI</h2>", unsafe_allow_html=True)
 
 # --- SIDEBAR CSV ---
 with st.sidebar:

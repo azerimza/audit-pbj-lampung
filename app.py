@@ -65,13 +65,13 @@ if file_ren and file_real:
             df[val_col] = pd.to_numeric(df[val_col].astype(str).str.replace(r'\D', '', regex=True), errors='coerce').fillna(0)
 
     # =====================================================================
-    # PEMISAHAN LOGIKAL: SWAKELOLA vs PENYEDIA SEJAK AWAL
+    # PEMISAHAN LOGIKAL MUTLAK: SWAKELOLA vs PENYEDIA SEJAK AWAL
     # =====================================================================
     # 1. Dataset Jalur Swakelola
     df_ren_swa = df_ren_raw[df_ren_raw['Metode Pengadaan'].astype(str).str.lower().str.contains('swakelola', na=False)] if 'Metode Pengadaan' in df_ren_raw.columns else pd.DataFrame(columns=df_ren_raw.columns)
     df_real_swa = df_real_raw[df_real_raw['Metode Pengadaan'].astype(str).str.lower().str.contains('swakelola', na=False)] if 'Metode Pengadaan' in df_real_raw.columns else pd.DataFrame(columns=df_real_raw.columns)
 
-    # 2. Dataset Jalur Penyedia (Tanpa Swakelola)
+    # 2. Dataset Jalur Penyedia (Garansi Bebas Teks Swakelola)
     df_ren = df_ren_raw[~df_ren_raw['Metode Pengadaan'].astype(str).str.lower().str.contains('swakelola', na=False)] if 'Metode Pengadaan' in df_ren_raw.columns else df_ren_raw.copy()
     df_real = df_real_raw[~df_real_raw['Metode Pengadaan'].astype(str).str.lower().str.contains('swakelola', na=False)] if 'Metode Pengadaan' in df_real_raw.columns else df_real_raw.copy()
 
@@ -89,7 +89,7 @@ if file_ren and file_real:
         val_col: 'sum', 'Kat_Audit': 'first'
     }).reset_index()
 
-    # --- 4. PANEL FILTER UTAMA ---
+# --- 4. PANEL FILTER UTAMA ---
     st.title("📊 Dashboard Audit & Rekonsiliasi (Terpisah Per Jalur)")
     
     f1, f2, f3 = st.columns([2, 2, 1])
@@ -139,12 +139,16 @@ if file_ren and file_real:
             df_real_swa_filtered = df_real_swa[df_real_swa[satker_col] == satker_jalan]
             satker_loop_list = [satker_jalan]
 
-        # Logika Inti Paket Tidak Terealisasi (Penyedia)
+        # Logika Inti Paket Tidak Terealisasi (DIKUNCI: Hanya mencocokkan perencanaan penyedia vs realisasi penyedia)
         df_tidak_realisasi_master = pd.merge(df_ren_filtered, df_real_agg_filtered[[rup_col, satker_col]], on=[rup_col, satker_col], how='left', indicator=True)
         df_tidak_realisasi = df_tidak_realisasi_master[df_tidak_realisasi_master['_merge'] == 'left_only'].drop(columns=['_merge'])
 
+        # Double-check Proteksi: Buang sisa jika ada anomali metode pengadaan swakelola di dalam draf tidak terealisasi global
+        if 'Metode Pengadaan' in df_tidak_realisasi.columns:
+            df_tidak_realisasi = df_tidak_realisasi[~df_tidak_realisasi['Metode Pengadaan'].astype(str).str.lower().str.contains('swakelola', na=False)]
+
         # =====================================================================
-        # OPSI 1: LAPORAN KESELURUHAN (EKSPLISIT TERPISAH)
+        # OPSI 1: LAPORAN KESELURUHAN (MURNI PENYEDIA & MURNI SWAKELOLA)
         # =====================================================================
         if "1. Laporan Keseluruhan" in opsi_jalan:
             st.success(f"📊 Menampilkan Analisis Data untuk: **{satker_jalan}**")
@@ -154,9 +158,12 @@ if file_ren and file_real:
             c1, c2, c3, c4 = st.columns(4)
             df_merge_glob = pd.merge(df_ren_filtered[[rup_col, satker_col, val_col]], df_real_agg_filtered[[rup_col, satker_col, val_col]], on=[rup_col, satker_col], how='outer', indicator=True)
             
+            # Double check baris right_only agar paket tanpa RUP swakelola tidak masuk ke metrik penyedia
+            df_right_murni_penyedia = df_merge_glob[df_merge_glob["_merge"]=="right_only"]
+            
             c1.markdown(f'<div class="stat-card"><div class="stat-label">SESUAI RENCANA (PENYEDIA)</div><div class="stat-value">{len(df_merge_glob[df_merge_glob["_merge"]=="both"])} Pkt</div></div>', unsafe_allow_html=True)
-            c2.markdown(f'<div class="stat-card" style="border-top: 5px solid #e67e22;"><div class="stat-label">TIDAK TEREALISASI (PENYEDIA)</div><div class="stat-value" style="color: #e67e22;">{len(df_tidak_realisasi)} Pkt (Rp {df_tidak_realisasi[val_col].sum():,.0f})</div></div>', unsafe_allow_html=True)
-            c3.markdown(f'<div class="stat-card" style="border-top: 5px solid #c0392b;"><div class="stat-label">TANPA RUP / TIDAK SESUAI</div><div class="stat-value" style="color: #c0392b;">{len(df_merge_glob[df_merge_glob["_merge"]=="right_only"])} Pkt (Rp {df_merge_glob[df_merge_glob["_merge"]=="right_only"][val_col + "_y"].sum():,.0f})</div></div>', unsafe_allow_html=True)
+            c2.markdown(f'<div class="stat-card" style="border-top: 5px solid #e67e22;"><div class="stat-label">TIDAK TEREALISASI (MURNI PENYEDIA)</div><div class="stat-value" style="color: #e67e22;">{len(df_tidak_realisasi)} Pkt (Rp {df_tidak_realisasi[val_col].sum():,.0f})</div></div>', unsafe_allow_html=True)
+            c3.markdown(f'<div class="stat-card" style="border-top: 5px solid #c0392b;"><div class="stat-label">TANPA RUP / TIDAK SESUAI</div><div class="stat-value" style="color: #c0392b;">{len(df_right_murni_penyedia)} Pkt (Rp {df_right_murni_penyedia[val_col + "_y"].sum():,.0f})</div></div>', unsafe_allow_html=True)
             c4.markdown(f'<div class="stat-card"><div class="stat-label">TOTAL REALISASI PENYEDIA</div><div class="stat-value">Rp {df_real_filtered[val_col].sum():,.0f}</div></div>', unsafe_allow_html=True)
 
             # --- TAMPILAN JALUR 2: MURNI SWAKELOLA ---
@@ -239,11 +246,11 @@ if file_ren and file_real:
                 )
 
         # =====================================================================
-        # OPSI 2 & 3: FILTER REPORT DETAIL (TETAP BERJALAN NORMAL)
+        # OPSI 2 & 3: REPORT DETAIL
         # =====================================================================
         elif "2. Laporan Paket Tidak Terealisasi" in opsi_jalan:
             st.warning(f"📋 Detail Paket Penyedia **Tidak Terealisasi** untuk: **{satker_jalan}**")
-            st.metric("Total Gagal Realisasi", f"Rp {df_tidak_realisasi[val_col].sum():,.0f}", f"{len(df_tidak_realisasi)} Paket")
+            st.metric("Total Gagal Realisasi (Murni Penyedia)", f"Rp {df_tidak_realisasi[val_col].sum():,.0f}", f"{len(df_tidak_realisasi)} Paket")
             search = st.text_input("🔍 Cari nama paket:")
             nama_paket_col = 'Nama Paket' if 'Nama Paket' in df_tidak_realisasi.columns else df_tidak_realisasi.columns[0]
             df_display = df_tidak_realisasi[df_tidak_realisasi[nama_paket_col].astype(str).str.contains(search, case=False, na=False)] if search else df_tidak_realisasi

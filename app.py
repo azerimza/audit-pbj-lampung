@@ -64,18 +64,20 @@ if file_ren and file_real:
         if val_col in df.columns:
             df[val_col] = pd.to_numeric(df[val_col].astype(str).str.replace(r'\D', '', regex=True), errors='coerce').fillna(0)
 
-    # PEMISAHAN KATEGORI BERDASARKAN METODE
+    # CRITICAL: Filter Pengecualian Swakelola dari Data Perencanaan & Realisasi
+    if 'Metode Pengadaan' in df_real.columns:
+        df_real = df_real[~df_real['Metode Pengadaan'].astype(str).str.lower().str.contains('swakelola', na=False)]
+    if 'Metode Pengadaan' in df_ren.columns:
+        df_ren = df_ren[~df_ren['Metode Pengadaan'].astype(str).str.lower().str.contains('swakelola', na=False)]
+
+    # PEMISAHAN KATEGORI BERDASARKAN METODE (SETELAH SWAKELOLA DIKELUARKAN)
     def map_kat(m):
         m = str(m).lower()
         if 'tokodaring' in m or 'toko daring' in m: return 'Tokodaring'
-        if 'swakelola' in m: return 'Swakelola'
         if 'katalog' in m: return 'E-Katalog'
         return 'Penyedia Lainnya'
 
-    if 'Metode Pengadaan' in df_real.columns:
-        df_real['Kat_Audit'] = df_real['Metode Pengadaan'].apply(map_kat)
-    else:
-        df_real['Kat_Audit'] = 'Lainnya'
+    df_real['Kat_Audit'] = df_real['Metode Pengadaan'].apply(map_kat) if 'Metode Pengadaan' in df_real.columns else 'Lainnya'
     
     # Agregasi data realisasi berdasarkan Kode RUP DAN Satker secara berpasangan
     df_real_agg = df_real.groupby([rup_col, satker_col]).agg({
@@ -83,9 +85,8 @@ if file_ren and file_real:
     }).reset_index()
 
     # --- 4. PANEL FILTER UTAMA ---
-    st.title("📊 Dashboard Audit & Rekonsiliasi")
+    st.title("📊 Dashboard Audit & Rekonsiliasi (Tanpa Swakelola)")
     
-    # Grid Kendali Utama (OPD, Jenis Laporan, Satu Tombol Proses)
     f1, f2, f3 = st.columns([2, 2, 1])
     with f1:
         list_satker_pilihan = ["Semua OPD / Satker"] + sorted(df_ren[satker_col].dropna().unique().tolist())
@@ -100,7 +101,6 @@ if file_ren and file_real:
         st.markdown("<br>", unsafe_allow_html=True)
         tombol_proses = st.button("🚀 Proses Data", use_container_width=True)
 
-    # Pengunci Tampilan Berbasis Session State
     if 'proses_dijalankan' not in st.session_state:
         st.session_state.proses_dijalankan = False
     if 'satker_aktif' not in st.session_state:
@@ -130,17 +130,17 @@ if file_ren and file_real:
             df_real_agg_filtered = df_real_agg[df_real_agg[satker_col] == satker_jalan]
             satker_loop_list = [satker_jalan]
 
-        # Logika Inti Paket Tidak Terealisasi (Ada di SIRUP, tapi TIDAK ADA di Realisasi)
+        # Logika Inti Paket Tidak Terealisasi
         df_tidak_realisasi_master = pd.merge(df_ren_filtered, df_real_agg_filtered[[rup_col, satker_col]], on=[rup_col, satker_col], how='left', indicator=True)
         df_tidak_realisasi = df_tidak_realisasi_master[df_tidak_realisasi_master['_merge'] == 'left_only'].drop(columns=['_merge'])
 
         # =====================================================================
-        # OPSI 1: LAPORAN KESELURUHAN (KOMPARASI LENGKAP + REKAP TIDAK SESUAI RUP)
+        # OPSI 1: LAPORAN KESELURUHAN (KOMPARASI MURNI PENYEDIA)
         # =====================================================================
         if "1. Laporan Keseluruhan" in opsi_jalan:
-            st.success(f"📊 Menampilkan **Laporan Keseluruhan** untuk: **{satker_jalan}**")
+            st.success(f"📊 Menampilkan **Laporan Keseluruhan (Eksklusi Swakelola)** untuk: **{satker_jalan}**")
             
-            # Kartu Ringkasan Atas (Outer Join Komprehensif)
+            # Kartu Ringkasan Atas
             c1, c2, c3, c4 = st.columns(4)
             df_merge_glob = pd.merge(df_ren_filtered[[rup_col, satker_col, val_col]], df_real_agg_filtered[[rup_col, satker_col, val_col]], on=[rup_col, satker_col], how='outer', indicator=True)
             
@@ -156,7 +156,6 @@ if file_ren and file_real:
                 ren_s = df_ren[df_ren[satker_col] == s]
                 real_s = df_real_agg[df_real_agg[satker_col] == s]
                 
-                # Outer join berbasis kombinasi RUP & Satker agar data tidak tereliminasi salah satu pihak
                 merge_s = pd.merge(
                     ren_s[[rup_col, satker_col, val_col]].rename(columns={val_col: 'Angg_Ren'}), 
                     real_s[[rup_col, satker_col, val_col, 'Kat_Audit']].rename(columns={val_col: 'Angg_Real'}), 

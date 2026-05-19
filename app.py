@@ -38,7 +38,7 @@ with st.sidebar:
     except:
         st.warning("Logo tidak ditemukan")
     st.markdown("## 📌 Rekonsiliasi SIRUP & Realisasi")
-    file_ren = st.file_uploader("1. Upload Data SIRUP", type=['csv'])
+    file_ren = st.file_uploader("1. Upload Data Perencanaan (RUP)", type=['csv'])
     file_real = st.file_uploader("2. Upload Data Realisasi", type=['csv'])
     st.divider()
 
@@ -47,119 +47,111 @@ if file_ren and file_real:
     df_ren = read_csv_smart(file_ren)
     df_real = read_csv_smart(file_real)
 
-    # Bersihkan kolom & tipe data
-    df_ren.columns = df_ren.columns.str.strip()
-    df_real.columns = df_real.columns.str.strip()
-
     val_col = 'Total Nilai (Rp)'
     rup_col = 'Kode RUP'
-    satker_col = 'Nama Satuan Kerja'
 
-    for df in [df_ren, df_real]:
-        if val_col in df.columns:
-            df[val_col] = pd.to_numeric(df[val_col].astype(str).str.replace(r'\D','', regex=True), errors='coerce').fillna(0)
-        if rup_col in df.columns:
-            df[rup_col] = df[rup_col].astype(str).str.strip().str.replace('.0','', regex=False)
-        if satker_col in df.columns:
-            df[satker_col] = df[satker_col].astype(str).str.strip()
+    # Pastikan kolom Metode Pengadaan ada
+    df_ren['Metode Pengadaan'] = df_ren['Metode Pengadaan'].astype(str).str.lower() if 'Metode Pengadaan' in df_ren.columns else ''
+    df_real['Metode Pengadaan'] = df_real['Metode Pengadaan'].astype(str).str.lower() if 'Metode Pengadaan' in df_real.columns else ''
 
-    # Pilih OPD
-    list_satker = ["Semua OPD"] + sorted(df_ren[satker_col].dropna().unique())
-    satker_selected = st.selectbox("🔍 Pilih OPD:", list_satker)
+    # 1️⃣ Sesuai RUP (Penyedia)
+    df_ren_penyedia = df_ren[~df_ren['Metode Pengadaan'].str.contains('swakelola', na=False)]
+    df_real_penyedia = df_real[~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)]
+    df_real_penyedia_sum = df_real_penyedia.groupby(rup_col, as_index=False)[val_col].sum()
+    df_sesuai = pd.merge(df_ren_penyedia.drop_duplicates(subset=[rup_col]), df_real_penyedia_sum, on=rup_col, how='inner')
+    jumlah_paket_sesuai = len(df_sesuai)
+    jumlah_anggaran_sesuai = df_sesuai[val_col].sum()
 
-    if satker_selected != "Semua OPD":
-        df_ren = df_ren[df_ren[satker_col]==satker_selected]
-        df_real = df_real[df_real[satker_col]==satker_selected]
+    # 2️⃣ Hanya Realisasi (Penyedia)
+    df_real_only = df_real_penyedia_sum[~df_real_penyedia_sum[rup_col].isin(df_ren_penyedia[rup_col])]
+    jumlah_paket_real_only = len(df_real_only)
+    jumlah_anggaran_real_only = df_real_only[val_col].sum()
 
-    # Analisis dasar
-    sesuai_rup = pd.merge(df_ren[[rup_col, val_col]], df_real[[rup_col, val_col]], on=rup_col, how='inner')
-    tidak_teralisasi = df_ren[~df_ren[rup_col].isin(df_real[rup_col])]
-    total_real = df_real[val_col].sum()
+    # 3️⃣ Swakelola
+    df_ren_swa = df_ren[df_ren['Metode Pengadaan'].str.contains('swakelola', na=False)]
+    df_real_swa = df_real[df_real['Metode Pengadaan'].str.contains('swakelola', na=False)]
+    df_swakelola = pd.merge(df_ren_swa.drop_duplicates(subset=[rup_col]),
+                            df_real_swa.groupby(rup_col, as_index=False)[val_col].sum(),
+                            on=rup_col, how='inner')
+    jumlah_paket_swakelola = len(df_swakelola)
+    jumlah_anggaran_swakelola = df_swakelola[val_col].sum()
 
-    # Tambahan: Tokodaring (misal dari kolom Metode Pengadaan)
+    # 4️⃣ Tokodaring
     if 'Metode Pengadaan' in df_real.columns:
-        df_tokodaring = df_real[df_real['Metode Pengadaan'].str.lower().str.contains('tokodaring', na=False)]
+        df_tokodaring = df_real[df_real['Metode Pengadaan'].str.contains('tokodaring', na=False)]
+        jumlah_paket_tokodaring = len(df_tokodaring)
+        jumlah_anggaran_tokodaring = df_tokodaring[val_col].sum()
     else:
         df_tokodaring = pd.DataFrame(columns=df_real.columns)
+        jumlah_paket_tokodaring = 0
+        jumlah_anggaran_tokodaring = 0
 
     # --- DASHBOARD METRIK ---
     st.markdown("## 📊 Ringkasan Rekonsiliasi")
-    c1, c2, c3 = st.columns([1.5, 2, 1.5])
+    c1, c2, c3, c4 = st.columns([1.5, 2, 1.5, 1.5])
 
+    # Sesuai RUP
     c1.markdown(f"""
     <div class="stat-card">
-        <div class="stat-label">✅ Sesuai RUP</div>
-        <div class="stat-value">{len(sesuai_rup)} Paket</div>
-        <div>Rp {sesuai_rup[val_col+'_x'].sum():,.0f}</div>
+        <div class="stat-label">✅ Sesuai RUP (Penyedia)</div>
+        <div class="stat-value">{jumlah_paket_sesuai} Paket</div>
+        <div>Rp {jumlah_anggaran_sesuai:,.0f}</div>
     </div>
     """, unsafe_allow_html=True)
 
+    # Hanya Realisasi
     c2.markdown(f"""
     <div class="stat-card" style="border-top: 5px solid #e67e22;">
-        <div class="stat-label">⚠️ Tidak Terealisasi</div>
-        <div class="stat-value">{len(tidak_teralisasi)} Paket</div>
-        <div>Rp {tidak_teralisasi[val_col].sum():,.0f}</div>
+        <div class="stat-label">⚠️ Hanya Realisasi (Penyedia)</div>
+        <div class="stat-value">{jumlah_paket_real_only} Paket</div>
+        <div>Rp {jumlah_anggaran_real_only:,.0f}</div>
     </div>
     """, unsafe_allow_html=True)
 
+    # Swakelola
     c3.markdown(f"""
-    <div class="stat-card" style="border-top: 5px solid #0c2461;">
-        <div class="stat-label">💰 Total Realisasi</div>
-        <div class="stat-value">Rp {total_real:,.0f}</div>
+    <div class="stat-card" style="border-top: 5px solid #27ae60;">
+        <div class="stat-label">🟢 Swakelola</div>
+        <div class="stat-value">{jumlah_paket_swakelola} Paket</div>
+        <div>Rp {jumlah_anggaran_swakelola:,.0f}</div>
     </div>
     """, unsafe_allow_html=True)
-
-    # --- VISUALISASI ---
-    st.markdown("## 📈 Grafik Realisasi vs Rencana")
-    df_plot = pd.merge(df_ren[[rup_col, val_col]], df_real[[rup_col, val_col]], on=rup_col, how='outer', suffixes=('_Rencana', '_Realisasi'))
-    fig = px.bar(
-        df_plot,
-        x=rup_col,
-        y=[val_col+'_Rencana', val_col+'_Realisasi'],
-        barmode='group',
-        title="Perbandingan Nilai RUP vs Realisasi",
-        labels={val_col+'_Rencana':'Rencana', val_col+'_Realisasi':'Realisasi'}
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    # --- TABEL DETAIL DENGAN TABS ---
-    st.markdown("## 📑 Tabel Detail Rekonsiliasi")
-    tab1, tab2, tab3 = st.tabs(["Semua RUP", "Tidak Terealisasi", "Tokodaring"])
-
-    # Semua RUP
-    df_all = pd.merge(df_ren, df_real, on=rup_col, how='outer', suffixes=('_Rencana','_Realisasi'))
-    df_all_display = df_all.copy()
-    if val_col+'_Rencana' in df_all_display.columns:
-        df_all_display[val_col+'_Rencana'] = df_all_display[val_col+'_Rencana'].apply(lambda x: f"{x:,.0f}")
-    if val_col+'_Realisasi' in df_all_display.columns:
-        df_all_display[val_col+'_Realisasi'] = df_all_display[val_col+'_Realisasi'].apply(lambda x: f"{x:,.0f}")
-    with tab1:
-        st.dataframe(df_all_display, use_container_width=True)
-
-    # Tidak Terealisasi
-    df_tidak_display = tidak_teralisasi.copy()
-    if val_col in df_tidak_display.columns:
-        df_tidak_display[val_col] = df_tidak_display[val_col].apply(lambda x: f"{x:,.0f}")
-    with tab2:
-        st.dataframe(df_tidak_display, use_container_width=True)
 
     # Tokodaring
-    df_td_display = df_tokodaring.copy()
-    if val_col in df_td_display.columns:
-        df_td_display[val_col] = df_td_display[val_col].apply(lambda x: f"{x:,.0f}")
+    c4.markdown(f"""
+    <div class="stat-card" style="border-top: 5px solid #9b59b6;">
+        <div class="stat-label">🛒 Tokodaring</div>
+        <div class="stat-value">{jumlah_paket_tokodaring} Paket</div>
+        <div>Rp {jumlah_anggaran_tokodaring:,.0f}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # --- TAB TABEL DETAIL ---
+    st.markdown("## 📑 Tabel Detail per Kategori")
+    tab1, tab2, tab3, tab4 = st.tabs(["Sesuai RUP", "Hanya Realisasi", "Swakelola", "Tokodaring"])
+
+    with tab1:
+        st.dataframe(df_sesuai, use_container_width=True)
+    with tab2:
+        st.dataframe(df_real_only, use_container_width=True)
     with tab3:
-        st.dataframe(df_td_display, use_container_width=True)
+        st.dataframe(df_swakelola, use_container_width=True)
+    with tab4:
+        st.dataframe(df_tokodaring, use_container_width=True)
 
-    # --- DOWNLOAD EXCEL PER TAB ---
+    # --- DOWNLOAD EXCEL PER KATEGORI ---
     st.markdown("## 🗂️ Unduh Laporan Excel")
-    download_cols = ["Semua_RUP","Tidak_Terealisasi","Tokodaring"]
-    download_dfs = [df_all_display, df_tidak_display, df_td_display]
-
-    for name, df_dl in zip(download_cols, download_dfs):
+    download_data = {
+        "Sesuai_RUP": df_sesuai,
+        "Hanya_Realisasi": df_real_only,
+        "Swakelola": df_swakelola,
+        "Tokodaring": df_tokodaring
+    }
+    for name, df_dl in download_data.items():
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
             df_dl.to_excel(writer, sheet_name=name, index=False)
         st.download_button(f"📥 Download {name}", data=buf.getvalue(), file_name=f"Laporan_{name}.xlsx", use_container_width=True)
 
 else:
-    st.info("👋 Silakan unggah file SIRUP dan Realisasi di sidebar.")
+    st.info("👋 Silakan unggah file Perencanaan dan Realisasi di sidebar.")

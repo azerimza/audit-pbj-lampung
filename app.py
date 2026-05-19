@@ -14,12 +14,10 @@ body { background-color: #f4f6f7; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- LOGO & JUDUL TENGAH ---
+# --- LOGO STATIS DI TENGAH ---
 col1, col2, col3 = st.columns([1,2,1])
 with col2:
-    logo_file = st.file_uploader("Upload Logo (opsional)", type=['png','jpg'])
-    if logo_file:
-        st.image(logo_file, width=120)
+    st.image("LOGO_PEMPROV_BARU.png", width=120)  # panggil logo langsung
     st.markdown("<h2 style='text-align: center;'>📌 Rekonsiliasi SIRUP & Realisasi</h2>", unsafe_allow_html=True)
 
 # --- SIDEBAR CSV ---
@@ -52,12 +50,13 @@ if file_ren and file_real:
     # --- SESUAI RUP ---
     df_ren_penyedia = df_ren[~df_ren['Metode Pengadaan'].str.contains('swakelola', na=False)] if 'Metode Pengadaan' in df_ren.columns else df_ren.copy()
     df_real_penyedia = df_real[~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)] if 'Metode Pengadaan' in df_real.columns else df_real.copy()
-    df_real_penyedia_sum = df_real_penyedia.groupby(rup_col, as_index=False)[val_col].sum() if val_col in df_real_penyedia.columns else pd.DataFrame(columns=[rup_col,val_col])
-    df_sesuai = pd.merge(df_ren_penyedia.drop_duplicates(subset=[rup_col]), df_real_penyedia_sum, on=rup_col, how='inner') if not df_ren_penyedia.empty and not df_real_penyedia_sum.empty else pd.DataFrame(columns=[rup_col,val_col])
+    df_real_penyedia_sum = df_real_penyedia.groupby(rup_col, as_index=False)[val_col].sum().rename(columns={val_col:'Anggaran_Realisasi'})
+    df_sesuai = pd.merge(df_ren_penyedia.drop_duplicates(subset=[rup_col]),
+                         df_real_penyedia_sum, on=rup_col, how='inner') if not df_ren_penyedia.empty else pd.DataFrame(columns=[rup_col,'Anggaran_Realisasi'])
 
-    # --- HANYA REALISASI (tanpa RUP di perencanaan) ---
+    # --- HANYA REALISASI ---
     df_real_only = df_real[(~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)) &
-                            (~df_real['Sumber Transaksi'].str.contains('tokodaring', na=False))] if 'Metode Pengadaan' in df_real.columns else pd.DataFrame()
+                            (~df_real['Sumber Transaksi'].str.contains('tokodaring', na=False))]
     if rup_col in df_ren.columns: df_real_only = df_real_only[~df_real_only[rup_col].isin(df_ren[rup_col])]
 
     # --- BELUM TEREALISASI (Hanya Penyedia) ---
@@ -67,19 +66,19 @@ if file_ren and file_real:
     ] if not df_ren.empty else pd.DataFrame()
 
     # --- SWAKELOLA ---
-    df_ren_swa = df_ren[df_ren['Cara Pengadaan'].str.contains('swakelola', na=False)] if 'Cara Pengadaan' in df_ren.columns else pd.DataFrame()
-    df_real_swa = df_real[df_real['Sumber Transaksi'].str.contains('swakelola', na=False)] if 'Sumber Transaksi' in df_real.columns else pd.DataFrame()
+    df_ren_swa = df_ren[df_ren['Cara Pengadaan'].str.contains('swakelola', na=False)]
+    df_real_swa = df_real[df_real['Sumber Transaksi'].str.contains('swakelola', na=False)]
     df_swakelola_tercatat = pd.merge(df_ren_swa.drop_duplicates(subset=[rup_col]),
-                                      df_real_swa.groupby(rup_col, as_index=False)[val_col].sum(),
-                                      on=rup_col, how='inner') if not df_ren_swa.empty and not df_real_swa.empty and val_col in df_real_swa.columns else pd.DataFrame(columns=[rup_col,val_col])
-    df_swakelola_tidak_tercatat = df_ren_swa[~df_ren_swa[rup_col].isin(df_real_swa[rup_col])] if not df_ren_swa.empty else pd.DataFrame()
+                                      df_real_swa.groupby(rup_col, as_index=False)[val_col].sum().rename(columns={val_col:'Anggaran_Realisasi'}),
+                                      on=rup_col, how='inner')
+    df_swakelola_tidak_tercatat = df_ren_swa[~df_ren_swa[rup_col].isin(df_real_swa[rup_col])]
 
     # --- TOKODARING ---
-    df_tokodaring = df_real[df_real['Sumber Transaksi'].str.contains('tokodaring', na=False)] if 'Sumber Transaksi' in df_real.columns else pd.DataFrame()
+    df_tokodaring = df_real[df_real['Sumber Transaksi'].str.contains('tokodaring', na=False)]
 
     # --- FILTER PER SATUAN KERJA ---
     if satker_terpilih != "Semua":
-        def filter_satker(df): return df[df['Nama Satuan Kerja'] == satker_terpilih] if 'Nama Satuan Kerja' in df.columns else df
+        def filter_satker(df): return df[df['Nama Satuan Kerja']==satker_terpilih] if 'Nama Satuan Kerja' in df.columns else df
         df_sesuai = filter_satker(df_sesuai)
         df_real_only = filter_satker(df_real_only)
         df_belum_teralisasi = filter_satker(df_belum_teralisasi)
@@ -88,7 +87,10 @@ if file_ren and file_real:
         df_tokodaring = filter_satker(df_tokodaring)
 
     # --- HITUNG PAKET & ANGGARAN ---
-    def hitung(df): return len(df), df[val_col].sum() if val_col in df.columns else 0
+    def hitung(df, val='Anggaran_Realisasi'):
+        if val not in df.columns: val = val_col
+        return len(df), df[val].sum() if val in df.columns else 0
+
     jumlah_paket_sesuai, jumlah_anggaran_sesuai = hitung(df_sesuai)
     jumlah_paket_real_only, jumlah_anggaran_real_only = hitung(df_real_only)
     jumlah_paket_belum, jumlah_anggaran_belum = hitung(df_belum_teralisasi)
@@ -96,7 +98,7 @@ if file_ren and file_real:
     jumlah_paket_swakelola_tidak_tercatat, jumlah_anggaran_swakelola_tidak_tercatat = hitung(df_swakelola_tidak_tercatat)
     jumlah_paket_tokodaring, jumlah_anggaran_tokodaring = hitung(df_tokodaring)
 
-    # --- DASHBOARD METRIK URUTAN FINAL ---
+    # --- DASHBOARD METRIK FINAL ---
     st.markdown("## 📊 Ringkasan Rekonsiliasi")
     cols = st.columns([1.5,2,1.5,1.5,1.5,1.5])
     cols[0].markdown(f"<div class='stat-card'><div class='stat-label'>✅ Sesuai RUP</div><div class='stat-value'>{jumlah_paket_sesuai} Paket</div><div>Rp {jumlah_anggaran_sesuai:,.0f}</div></div>", unsafe_allow_html=True)

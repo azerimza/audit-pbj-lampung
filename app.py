@@ -38,7 +38,7 @@ with st.sidebar:
             
     st.markdown("<h3 style='text-align: center; margin-top: -10px;'>PEMBINAAN DAN ADVOKASI</h3>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center;'><b>Reza Saputra Azmi</b></p>", unsafe_allow_html=True)
-    st.divider() # Baris ini sekarang aman di dalam sidebar
+    st.divider()
     
     file_ren = st.file_uploader("1. Upload Data SIRUP", type=['csv'])
     file_real = st.file_uploader("2. Upload Data Realisasi", type=['csv'])
@@ -77,25 +77,41 @@ if file_ren and file_real:
         val_col: 'sum', satker_col: 'first', 'Kat_Audit': 'first'
     }).reset_index()
 
-    # --- 4. TAMPILAN DASHBOARD ---
+    # --- FITUR FILTER PER INSTANSI / SATKER ---
     st.title("📊 Dashboard Audit & Rekonsiliasi")
     
+    # Ambil list unik nama satker untuk pilihan dropdown
+    list_satker_pilihan = ["Semua Satker"] + sorted(df_ren[satker_col].dropna().unique().tolist())
+    satker_terpilih = st.selectbox("🔍 Pilih Instansi / Satuan Kerja:", list_satker_pilihan)
+
+    # Filter data berdasarkan pilihan user sebelum masuk ke tampilan
+    if satker_terpilih == "Semua Satker":
+        df_ren_filtered = df_ren
+        df_real_filtered = df_real
+        df_real_agg_filtered = df_real_agg
+        satker_loop_list = sorted(df_ren[satker_col].dropna().unique())
+    else:
+        df_ren_filtered = df_ren[df_ren[satker_col] == satker_terpilih]
+        df_real_filtered = df_real[df_real[satker_col] == satker_terpilih]
+        df_real_agg_filtered = df_real_agg[df_real_agg[satker_col] == satker_terpilih]
+        satker_loop_list = [satker_terpilih]
+
+    # --- 4. TAMPILAN DASHBOARD (DENGAN DATA FILTERED) ---
     c1, c2, c3, c4 = st.columns(4)
-    df_merge_glob = pd.merge(df_ren[[rup_col, val_col]], df_real_agg[[rup_col, val_col]], on=rup_col, how='right', indicator=True)
+    df_merge_glob = pd.merge(df_ren_filtered[[rup_col, val_col]], df_real_agg_filtered[[rup_col, val_col]], on=rup_col, how='right', indicator=True)
     
     c1.markdown(f'<div class="stat-card"><div class="stat-label">SESUAI RENCANA</div><div class="stat-value">{len(df_merge_glob[df_merge_glob["_merge"]=="both"])} Pkt</div></div>', unsafe_allow_html=True)
     c2.markdown(f'<div class="stat-card"><div class="stat-label">TANPA RENCANA</div><div class="stat-value">{len(df_merge_glob[df_merge_glob["_merge"]=="right_only"])} Pkt</div></div>', unsafe_allow_html=True)
-    c3.markdown(f'<div class="stat-card"><div class="stat-label">TOTAL REALISASI</div><div class="stat-value">Rp {df_real[val_col].sum():,.0f}</div></div>', unsafe_allow_html=True)
-    c4.markdown(f'<div class="stat-card"><div class="stat-label">EFISIENSI ANGGARAN</div><div class="stat-value">Rp {df_ren[val_col].sum() - df_real[val_col].sum():,.0f}</div></div>', unsafe_allow_html=True)
+    c3.markdown(f'<div class="stat-card"><div class="stat-label">TOTAL REALISASI</div><div class="stat-value">Rp {df_real_filtered[val_col].sum():,.0f}</div></div>', unsafe_allow_html=True)
+    c4.markdown(f'<div class="stat-card"><div class="stat-label">EFISIENSI ANGGARAN</div><div class="stat-value">Rp {df_ren_filtered[val_col].sum() - df_real_filtered[val_col].sum():,.0f}</div></div>', unsafe_allow_html=True)
 
     # --- 5. TABEL LAPORAN ---
     st.divider()
-    st.subheader("📑 Laporan Audit Rekonsiliasi Per Satker")
+    st.subheader(f"📑 Laporan Audit Rekonsiliasi - {satker_terpilih}")
     
     rekap_list = []
-    satker_list = sorted(df_ren[satker_col].dropna().unique())
     
-    for i, s in enumerate(satker_list, 1):
+    for i, s in enumerate(satker_loop_list, 1):
         ren_s = df_ren[df_ren[satker_col] == s]
         real_s = df_real_agg[df_real_agg[satker_col] == s]
         
@@ -129,7 +145,7 @@ if file_ren and file_real:
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
         df_final.to_excel(writer, sheet_name='Laporan_Audit', index=False)
-    st.download_button("📥 Download Laporan Lengkap", buffer.getvalue(), "Laporan_Audit_PBJ.xlsx")
+    st.download_button(f"📥 Download Laporan {satker_terpilih}", buffer.getvalue(), f"Laporan_Audit_{satker_terpilih.replace(' ', '_')}.xlsx")
 
 else:
     st.info("👋 Selamat Datang! Silakan unggah data SIRUP dan Realisasi pada sidebar.")

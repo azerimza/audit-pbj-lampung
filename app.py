@@ -60,8 +60,11 @@ if file_ren and file_real:
                             (~df_real['Sumber Transaksi'].str.contains('tokodaring', na=False))] if 'Metode Pengadaan' in df_real.columns else pd.DataFrame()
     if rup_col in df_ren.columns: df_real_only = df_real_only[~df_real_only[rup_col].isin(df_ren[rup_col])]
 
-    # --- BELUM TEREALISASI ---
-    df_belum_teralisasi = df_ren[~df_ren[rup_col].isin(df_real[rup_col])] if not df_ren.empty else pd.DataFrame()
+    # --- BELUM TEREALISASI (Hanya Cara Pengadaan = Penyedia) ---
+    df_belum_teralisasi = df_ren[
+        (~df_ren[rup_col].isin(df_real[rup_col])) &
+        (df_ren['Cara Pengadaan'].str.contains('penyedia', case=False, na=False))
+    ] if not df_ren.empty else pd.DataFrame()
 
     # --- SWAKELOLA TERDATAT DAN TIDAK TERCATAT ---
     df_ren_swa = df_ren[df_ren['Cara Pengadaan'].str.contains('swakelola', na=False)] if 'Cara Pengadaan' in df_ren.columns else pd.DataFrame()

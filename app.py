@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import io
 
 # --- CONFIG & STYLING ---
@@ -23,13 +22,11 @@ body { background-color: #f4f6f7; }
 """, unsafe_allow_html=True)
 
 @st.cache_data
-def read_csv_smart(file):
+def read_csv(file):
     try:
-        file.seek(0)
-        return pd.read_csv(file, sep=None, engine='python', encoding='utf-8')
+        return pd.read_csv(file)
     except:
-        file.seek(0)
-        return pd.read_csv(file, sep=None, engine='python', encoding='cp1252')
+        return pd.read_csv(file, encoding='cp1252')
 
 # --- SIDEBAR ---
 with st.sidebar:
@@ -44,17 +41,18 @@ with st.sidebar:
 
 # --- LOGIKA UTAMA ---
 if file_ren and file_real:
-    df_ren = read_csv_smart(file_ren)
-    df_real = read_csv_smart(file_real)
+    df_ren = read_csv(file_ren)
+    df_real = read_csv(file_real)
 
     val_col = 'Total Nilai (Rp)'
     rup_col = 'Kode RUP'
 
-    # Pastikan kolom Metode Pengadaan ada
+    # Pastikan kolom ada
     df_ren['Metode Pengadaan'] = df_ren['Metode Pengadaan'].astype(str).str.lower() if 'Metode Pengadaan' in df_ren.columns else ''
     df_real['Metode Pengadaan'] = df_real['Metode Pengadaan'].astype(str).str.lower() if 'Metode Pengadaan' in df_real.columns else ''
+    df_real['Sumber Transaksi'] = df_real['Sumber Transaksi'].astype(str).str.lower() if 'Sumber Transaksi' in df_real.columns else ''
 
-    # 1️⃣ Sesuai RUP (Penyedia)
+    # --- 1️⃣ Sesuai RUP (Penyedia) ---
     df_ren_penyedia = df_ren[~df_ren['Metode Pengadaan'].str.contains('swakelola', na=False)]
     df_real_penyedia = df_real[~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)]
     df_real_penyedia_sum = df_real_penyedia.groupby(rup_col, as_index=False)[val_col].sum()
@@ -62,74 +60,43 @@ if file_ren and file_real:
     jumlah_paket_sesuai = len(df_sesuai)
     jumlah_anggaran_sesuai = df_sesuai[val_col].sum()
 
-    # 2️⃣ Hanya Realisasi (Penyedia)
-    df_real_only = df_real_penyedia_sum[~df_real_penyedia_sum[rup_col].isin(df_ren_penyedia[rup_col])]
+    # --- 2️⃣ Hanya Realisasi (penyedia biasa, bukan Tokodaring atau Swakelola) ---
+    df_real_only = df_real[
+        (~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)) &
+        (~df_real['Sumber Transaksi'].str.contains('tokodaring', na=False))
+    ]
+    df_real_only = df_real_only[~df_real_only[rup_col].isin(df_ren[rup_col])]
     jumlah_paket_real_only = len(df_real_only)
     jumlah_anggaran_real_only = df_real_only[val_col].sum()
 
-    # 3️⃣ Swakelola
+    # --- 3️⃣ Swakelola ---
     df_ren_swa = df_ren[df_ren['Metode Pengadaan'].str.contains('swakelola', na=False)]
     df_real_swa = df_real[df_real['Metode Pengadaan'].str.contains('swakelola', na=False)]
-    df_swakelola = pd.merge(df_ren_swa.drop_duplicates(subset=[rup_col]),
-                            df_real_swa.groupby(rup_col, as_index=False)[val_col].sum(),
-                            on=rup_col, how='inner')
+    df_swakelola = pd.merge(
+        df_ren_swa.drop_duplicates(subset=[rup_col]),
+        df_real_swa.groupby(rup_col, as_index=False)[val_col].sum(),
+        on=rup_col,
+        how='inner'
+    )
     jumlah_paket_swakelola = len(df_swakelola)
     jumlah_anggaran_swakelola = df_swakelola[val_col].sum()
 
-    # 4️⃣ Tokodaring
-    if 'Metode Pengadaan' in df_real.columns:
-        df_tokodaring = df_real[df_real['Metode Pengadaan'].str.contains('tokodaring', na=False)]
-        jumlah_paket_tokodaring = len(df_tokodaring)
-        jumlah_anggaran_tokodaring = df_tokodaring[val_col].sum()
-    else:
-        df_tokodaring = pd.DataFrame(columns=df_real.columns)
-        jumlah_paket_tokodaring = 0
-        jumlah_anggaran_tokodaring = 0
+    # --- 4️⃣ Tokodaring ---
+    df_tokodaring = df_real[df_real['Sumber Transaksi'].str.contains('tokodaring', na=False)] if 'Sumber Transaksi' in df_real.columns else pd.DataFrame(columns=df_real.columns)
+    jumlah_paket_tokodaring = len(df_tokodaring)
+    jumlah_anggaran_tokodaring = df_tokodaring[val_col].sum() if not df_tokodaring.empty else 0
 
     # --- DASHBOARD METRIK ---
     st.markdown("## 📊 Ringkasan Rekonsiliasi")
     c1, c2, c3, c4 = st.columns([1.5, 2, 1.5, 1.5])
-
-    # Sesuai RUP
-    c1.markdown(f"""
-    <div class="stat-card">
-        <div class="stat-label">✅ Sesuai RUP (Penyedia)</div>
-        <div class="stat-value">{jumlah_paket_sesuai} Paket</div>
-        <div>Rp {jumlah_anggaran_sesuai:,.0f}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Hanya Realisasi
-    c2.markdown(f"""
-    <div class="stat-card" style="border-top: 5px solid #e67e22;">
-        <div class="stat-label">⚠️ Hanya Realisasi (Penyedia)</div>
-        <div class="stat-value">{jumlah_paket_real_only} Paket</div>
-        <div>Rp {jumlah_anggaran_real_only:,.0f}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Swakelola
-    c3.markdown(f"""
-    <div class="stat-card" style="border-top: 5px solid #27ae60;">
-        <div class="stat-label">🟢 Swakelola</div>
-        <div class="stat-value">{jumlah_paket_swakelola} Paket</div>
-        <div>Rp {jumlah_anggaran_swakelola:,.0f}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Tokodaring
-    c4.markdown(f"""
-    <div class="stat-card" style="border-top: 5px solid #9b59b6;">
-        <div class="stat-label">🛒 Tokodaring</div>
-        <div class="stat-value">{jumlah_paket_tokodaring} Paket</div>
-        <div>Rp {jumlah_anggaran_tokodaring:,.0f}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    c1.markdown(f"<div class='stat-card'><div class='stat-label'>✅ Sesuai RUP (Penyedia)</div><div class='stat-value'>{jumlah_paket_sesuai} Paket</div><div>Rp {jumlah_anggaran_sesuai:,.0f}</div></div>", unsafe_allow_html=True)
+    c2.markdown(f"<div class='stat-card' style='border-top: 5px solid #e67e22;'><div class='stat-label'>⚠️ Hanya Realisasi</div><div class='stat-value'>{jumlah_paket_real_only} Paket</div><div>Rp {jumlah_anggaran_real_only:,.0f}</div></div>", unsafe_allow_html=True)
+    c3.markdown(f"<div class='stat-card' style='border-top: 5px solid #27ae60;'><div class='stat-label'>🟢 Swakelola</div><div class='stat-value'>{jumlah_paket_swakelola} Paket</div><div>Rp {jumlah_anggaran_swakelola:,.0f}</div></div>", unsafe_allow_html=True)
+    c4.markdown(f"<div class='stat-card' style='border-top: 5px solid #9b59b6;'><div class='stat-label'>🛒 Tokodaring</div><div class='stat-value'>{jumlah_paket_tokodaring} Paket</div><div>Rp {jumlah_anggaran_tokodaring:,.0f}</div></div>", unsafe_allow_html=True)
 
     # --- TAB TABEL DETAIL ---
     st.markdown("## 📑 Tabel Detail per Kategori")
     tab1, tab2, tab3, tab4 = st.tabs(["Sesuai RUP", "Hanya Realisasi", "Swakelola", "Tokodaring"])
-
     with tab1:
         st.dataframe(df_sesuai, use_container_width=True)
     with tab2:

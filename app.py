@@ -24,8 +24,8 @@ body { background-color: #f4f6f7; }
 # --- LOGO DAN JUDUL DI TENGAH ---
 col1, col2, col3 = st.columns([1,2,1])
 with col2:
-    st.image("/mnt/data/a085be99-4ddf-4331-810c-85050b30ef81.png", width=120)
-    st.markdown("<h2 style='text-align: center;'>📌 Rekonsiliasi SIRUP & Realisasi</h2>", unsafe_allow_html=True)
+    st.image("LOGO PEMPROV BARU.png", width=120)
+    st.markdown("<h2 style='text-align: center;'>PEMBINAAN DAN ADVOKASI</h2>", unsafe_allow_html=True)
 
 # --- SIDEBAR UNTUK UPLOAD CSV ---
 with st.sidebar:

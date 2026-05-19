@@ -45,32 +45,37 @@ with st.sidebar:
 
 # --- 3. LOGIKA PEMROSESAN ---
 if file_ren and file_real:
-    df_ren, df_real = read_csv_smart(file_ren), read_csv_smart(file_real)
+    df_ren_raw, df_real_raw = read_csv_smart(file_ren), read_csv_smart(file_real)
     val_col, rup_col, satker_col = 'Total Nilai (Rp)', 'Kode RUP', 'Nama Satuan Kerja'
     
     # Bersihkan nama kolom
-    df_ren.columns = df_ren.columns.str.strip()
-    df_real.columns = df_real.columns.str.strip()
+    df_ren_raw.columns = df_ren_raw.columns.str.strip()
+    df_real_raw.columns = df_real_raw.columns.str.strip()
 
     # Paksa Kode RUP jadi String & Bersihkan Spasi
-    df_ren[rup_col] = df_ren[rup_col].astype(str).str.strip().str.replace('.0', '', regex=False)
-    df_real[rup_col] = df_real[rup_col].astype(str).str.strip().str.replace('.0', '', regex=False)
+    df_ren_raw[rup_col] = df_ren_raw[rup_col].astype(str).str.strip().str.replace('.0', '', regex=False)
+    df_real_raw[rup_col] = df_real_raw[rup_col].astype(str).str.strip().str.replace('.0', '', regex=False)
     
     # Sinkronisasi Nama Satker agar pencocokan teks antar-file tidak miss
-    df_ren[satker_col] = df_ren[satker_col].astype(str).str.strip()
-    df_real[satker_col] = df_real[satker_col].astype(str).str.strip()
+    df_ren_raw[satker_col] = df_ren_raw[satker_col].astype(str).str.strip()
+    df_real_raw[satker_col] = df_real_raw[satker_col].astype(str).str.strip()
 
-    for df in [df_ren, df_real]:
+    for df in [df_ren_raw, df_real_raw]:
         if val_col in df.columns:
             df[val_col] = pd.to_numeric(df[val_col].astype(str).str.replace(r'\D', '', regex=True), errors='coerce').fillna(0)
 
-    # CRITICAL: Filter Pengecualian Swakelola dari Data Perencanaan & Realisasi
-    if 'Metode Pengadaan' in df_real.columns:
-        df_real = df_real[~df_real['Metode Pengadaan'].astype(str).str.lower().str.contains('swakelola', na=False)]
-    if 'Metode Pengadaan' in df_ren.columns:
-        df_ren = df_ren[~df_ren['Metode Pengadaan'].astype(str).str.lower().str.contains('swakelola', na=False)]
+    # =====================================================================
+    # PEMISAHAN LOGIKAL: SWAKELOLA vs PENYEDIA SEJAK AWAL
+    # =====================================================================
+    # 1. Dataset Jalur Swakelola
+    df_ren_swa = df_ren_raw[df_ren_raw['Metode Pengadaan'].astype(str).str.lower().str.contains('swakelola', na=False)] if 'Metode Pengadaan' in df_ren_raw.columns else pd.DataFrame(columns=df_ren_raw.columns)
+    df_real_swa = df_real_raw[df_real_raw['Metode Pengadaan'].astype(str).str.lower().str.contains('swakelola', na=False)] if 'Metode Pengadaan' in df_real_raw.columns else pd.DataFrame(columns=df_real_raw.columns)
 
-    # PEMISAHAN KATEGORI BERDASARKAN METODE (SETELAH SWAKELOLA DIKELUARKAN)
+    # 2. Dataset Jalur Penyedia (Tanpa Swakelola)
+    df_ren = df_ren_raw[~df_ren_raw['Metode Pengadaan'].astype(str).str.lower().str.contains('swakelola', na=False)] if 'Metode Pengadaan' in df_ren_raw.columns else df_ren_raw.copy()
+    df_real = df_real_raw[~df_real_raw['Metode Pengadaan'].astype(str).str.lower().str.contains('swakelola', na=False)] if 'Metode Pengadaan' in df_real_raw.columns else df_real_raw.copy()
+
+    # Identifikasi Kategori Khusus Penyedia
     def map_kat(m):
         m = str(m).lower()
         if 'tokodaring' in m or 'toko daring' in m: return 'Tokodaring'
@@ -79,161 +84,12 @@ if file_ren and file_real:
 
     df_real['Kat_Audit'] = df_real['Metode Pengadaan'].apply(map_kat) if 'Metode Pengadaan' in df_real.columns else 'Lainnya'
     
-    # Agregasi data realisasi berdasarkan Kode RUP DAN Satker secara berpasangan
+    # Agregasi data realisasi penyedia berdasarkan RUP & Satker
     df_real_agg = df_real.groupby([rup_col, satker_col]).agg({
         val_col: 'sum', 'Kat_Audit': 'first'
     }).reset_index()
 
     # --- 4. PANEL FILTER UTAMA ---
-    st.title("📊 Dashboard Audit & Rekonsiliasi (Tanpa Swakelola)")
+    st.title("📊 Dashboard Audit & Rekonsiliasi (Terpisah Per Jalur)")
     
-    f1, f2, f3 = st.columns([2, 2, 1])
-    with f1:
-        list_satker_pilihan = ["Semua OPD / Satker"] + sorted(df_ren[satker_col].dropna().unique().tolist())
-        satker_terpilih = st.selectbox("🔍 Pilih OPD / Instansi:", list_satker_pilihan)
-    with f2:
-        opsi_proses = st.selectbox("⚙️ Pilih Jenis Analisis Laporan:", [
-            "1. Laporan Keseluruhan (Realisasi, Tidak Terealisasi & Tanpa RUP)",
-            "2. Laporan Paket Tidak Terealisasi Saja",
-            "3. Laporan Khusus Toko Daring"
-        ])
-    with f3:
-        st.markdown("<br>", unsafe_allow_html=True)
-        tombol_proses = st.button("🚀 Proses Data", use_container_width=True)
-
-    if 'proses_dijalankan' not in st.session_state:
-        st.session_state.proses_dijalankan = False
-    if 'satker_aktif' not in st.session_state:
-        st.session_state.satker_aktif = ""
-    if 'opsi_aktif' not in st.session_state:
-        st.session_state.opsi_aktif = ""
-
-    if tombol_proses:
-        st.session_state.proses_dijalankan = True
-        st.session_state.satker_aktif = satker_terpilih
-        st.session_state.opsi_aktif = opsi_proses
-
-    # --- JALANKAN EKSEKUSI DATA ---
-    if st.session_state.proses_dijalankan:
-        satker_jalan = st.session_state.satker_aktif
-        opsi_jalan = st.session_state.opsi_aktif
-
-        # Filter Dataset berdasarkan scope OPD yang dipilih
-        if satker_jalan == "Semua OPD / Satker":
-            df_ren_filtered = df_ren
-            df_real_filtered = df_real
-            df_real_agg_filtered = df_real_agg
-            satker_loop_list = sorted(df_ren[satker_col].dropna().unique())
-        else:
-            df_ren_filtered = df_ren[df_ren[satker_col] == satker_jalan]
-            df_real_filtered = df_real[df_real[satker_col] == satker_jalan]
-            df_real_agg_filtered = df_real_agg[df_real_agg[satker_col] == satker_jalan]
-            satker_loop_list = [satker_jalan]
-
-        # Logika Inti Paket Tidak Terealisasi
-        df_tidak_realisasi_master = pd.merge(df_ren_filtered, df_real_agg_filtered[[rup_col, satker_col]], on=[rup_col, satker_col], how='left', indicator=True)
-        df_tidak_realisasi = df_tidak_realisasi_master[df_tidak_realisasi_master['_merge'] == 'left_only'].drop(columns=['_merge'])
-
-        # =====================================================================
-        # OPSI 1: LAPORAN KESELURUHAN (KOMPARASI MURNI PENYEDIA)
-        # =====================================================================
-        if "1. Laporan Keseluruhan" in opsi_jalan:
-            st.success(f"📊 Menampilkan **Laporan Keseluruhan (Eksklusi Swakelola)** untuk: **{satker_jalan}**")
-            
-            # Kartu Ringkasan Atas
-            c1, c2, c3, c4 = st.columns(4)
-            df_merge_glob = pd.merge(df_ren_filtered[[rup_col, satker_col, val_col]], df_real_agg_filtered[[rup_col, satker_col, val_col]], on=[rup_col, satker_col], how='outer', indicator=True)
-            
-            c1.markdown(f'<div class="stat-card"><div class="stat-label">SESUAI RENCANA</div><div class="stat-value">{len(df_merge_glob[df_merge_glob["_merge"]=="both"])} Pkt</div></div>', unsafe_allow_html=True)
-            c2.markdown(f'<div class="stat-card" style="border-top: 5px solid #e67e22;"><div class="stat-label">TIDAK TEREALISASI</div><div class="stat-value" style="color: #e67e22;">{len(df_tidak_realisasi)} Pkt (Rp {df_tidak_realisasi[val_col].sum():,.0f})</div></div>', unsafe_allow_html=True)
-            c3.markdown(f'<div class="stat-card" style="border-top: 5px solid #c0392b;"><div class="stat-label">TIDAK SESUAI RUP (TANPA RENCANA)</div><div class="stat-value" style="color: #c0392b;">{len(df_merge_glob[df_merge_glob["_merge"]=="right_only"])} Pkt (Rp {df_merge_glob[df_merge_glob["_merge"]=="right_only"][val_col + "_y"].sum():,.0f})</div></div>', unsafe_allow_html=True)
-            c4.markdown(f'<div class="stat-card"><div class="stat-label">TOTAL REALISASI DATA</div><div class="stat-value">Rp {df_real_filtered[val_col].sum():,.0f}</div></div>', unsafe_allow_html=True)
-
-            # Tabel Analisis Utama Rekapitulasi Per Instansi
-            st.subheader("📑 Tabel Rekapitulasi Komparasi Data Per Instansi")
-            rekap_list = []
-            for i, s in enumerate(satker_loop_list, 1):
-                ren_s = df_ren[df_ren[satker_col] == s]
-                real_s = df_real_agg[df_real_agg[satker_col] == s]
-                
-                merge_s = pd.merge(
-                    ren_s[[rup_col, satker_col, val_col]].rename(columns={val_col: 'Angg_Ren'}), 
-                    real_s[[rup_col, satker_col, val_col, 'Kat_Audit']].rename(columns={val_col: 'Angg_Real'}), 
-                    on=[rup_col, satker_col], 
-                    how='outer', 
-                    indicator=True
-                )
-
-                df_sesuai = merge_s[merge_s['_merge'] == 'both']
-                df_tidak_realisasi_satker = merge_s[merge_s['_merge'] == 'left_only']
-                df_tanpa_rup_satker = merge_s[merge_s['_merge'] == 'right_only']
-                df_tokodaring_satker = real_s[real_s['Kat_Audit'] == 'Tokodaring']
-
-                rekap_list.append({
-                    'No': i, 
-                    'Nama Satuan Kerja': s,
-                    'Sesuai RUP (Pkt)': len(df_sesuai), 
-                    'Sesuai RUP (Angg)': df_sesuai['Angg_Real'].sum(),
-                    'Tidak Terealisasi (Pkt)': len(df_tidak_realisasi_satker), 
-                    'Tidak Terealisasi (Angg)': df_tidak_realisasi_satker['Angg_Ren'].sum(),
-                    'Tidak Sesuai RUP / Tanpa Rencana (Pkt)': len(df_tanpa_rup_satker),
-                    'Tidak Sesuai RUP / Tanpa Rencana (Angg)': df_tanpa_rup_satker['Angg_Real'].sum(),
-                    'Tokodaring (Pkt)': len(df_tokodaring_satker), 
-                    'Tokodaring (Angg)': df_tokodaring_satker[val_col].sum(),
-                    'Total Realisasi (Angg)': real_s[val_col].sum()
-                })
-
-            df_final = pd.DataFrame(rekap_list)
-            st.dataframe(df_final.style.format(precision=0, thousands=","), use_container_width=True)
-
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                df_final.to_excel(writer, sheet_name='Laporan_Keseluruhan', index=False)
-            st.download_button(f"📥 Download Laporan Keseluruhan", buffer.getvalue(), f"Laporan_Keseluruhan_{satker_jalan.replace(' ', '_')}.xlsx")
-
-        # =====================================================================
-        # OPSI 2: LAPORAN DETAIL PAKET TIDAK TEREALISASI SAJA
-        # =====================================================================
-        elif "2. Laporan Paket Tidak Terealisasi" in opsi_jalan:
-            st.warning(f"📋 Menampilkan Daftar Detail Paket **Tidak Terealisasi** untuk: **{satker_jalan}**")
-            
-            st.metric("Total Anggaran Gagal Realisasi", f"Rp {df_tidak_realisasi[val_col].sum():,.0f}", f"{len(df_tidak_realisasi)} Paket")
-            
-            search = st.text_input("🔍 Cari paket berdasarkan kata kunci nama paket:")
-            nama_paket_col = 'Nama Paket' if 'Nama Paket' in df_tidak_realisasi.columns else df_tidak_realisasi.columns[0]
-            
-            if search:
-                df_display = df_tidak_realisasi[df_tidak_realisasi[nama_paket_col].astype(str).str.contains(search, case=False, na=False)]
-            else:
-                df_display = df_tidak_realisasi
-
-            kolom_tampil = [satker_col, rup_col, nama_paket_col, val_col]
-            kolom_tampil = [c for c in kolom_tampil if c in df_display.columns]
-            st.dataframe(df_display[kolom_tampil].style.format({val_col: "{:,.0f}"}), use_container_width=True)
-
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                df_display.to_excel(writer, sheet_name='Tidak_Terealisasi', index=False)
-            st.download_button(f"📥 Download Paket Tidak Terealisasi", buffer.getvalue(), f"Tidak_Terealisasi_{satker_jalan.replace(' ', '_')}.xlsx")
-
-        # =====================================================================
-        # OPSI 3: LAPORAN KHUSUS TOKO DARING
-        # =====================================================================
-        elif "3. Laporan Khusus Toko Daring" in opsi_jalan:
-            st.info(f"🛒 Menampilkan Analisis Transaksi **Toko Daring** untuk: **{satker_jalan}**")
-            
-            df_tokodaring = df_real_filtered[df_real_filtered['Kat_Audit'] == 'Tokodaring']
-            st.metric("Total Transaksi Tokodaring", f"Rp {df_tokodaring[val_col].sum():,.0f}", f"{len(df_tokodaring)} Paket")
-            
-            nama_paket_col = 'Nama Paket' if 'Nama Paket' in df_tokodaring.columns else df_tokodaring.columns[0]
-            st.dataframe(df_tokodaring[[satker_col, rup_col, nama_paket_col, val_col]].style.format({val_col: "{:,.0f}"}), use_container_width=True)
-
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                df_tokodaring.to_excel(writer, sheet_name='Data_Tokodaring', index=False)
-            st.download_button(f"📥 Download Data Tokodaring", buffer.getvalue(), f"Tokodaring_{satker_jalan.replace(' ', '_')}.xlsx")
-
-    else:
-        st.warning("⚠️ Tentukan OPD dan Jenis Analisis di atas, lalu klik **🚀 Proses Data**.")
-else:
-    st.info("👋 Selamat Datang! Silakan unggah data SIRUP dan Realisasi pada sidebar.")
+    f1,

@@ -80,7 +80,6 @@ if file_ren and file_real:
     # --- FITUR FILTER PER INSTANSI / SATKER ---
     st.title("📊 Dashboard Audit & Rekonsiliasi")
     
-    # Ambil list unik nama satker untuk pilihan dropdown
     list_satker_pilihan = ["Semua Satker"] + sorted(df_ren[satker_col].dropna().unique().tolist())
     satker_terpilih = st.selectbox("🔍 Pilih Instansi / Satuan Kerja:", list_satker_pilihan)
 
@@ -96,6 +95,15 @@ if file_ren and file_real:
         df_real_agg_filtered = df_real_agg[df_real_agg[satker_col] == satker_terpilih]
         satker_loop_list = [satker_terpilih]
 
+    # --- LOGIKA IDENTIFIKASI TIDAK TEREALISASI ---
+    # Merge untuk mencari apa yang ada di perencanaan tapi tidak ada di realisasi (left_only)
+    df_tidak_realisasi_master = pd.merge(df_ren_filtered, df_real_agg_filtered[[rup_col]], on=rup_col, how='left', indicator=True)
+    df_tidak_realisasi = df_tidak_realisasi_master[df_tidak_realisasi_master['_merge'] == 'left_only'].drop(columns=['_merge'])
+
+    # Hitung metrik total tidak terealisasi
+    total_pkt_tidak_realisasi = len(df_tidak_realisasi)
+    total_anggaran_tidak_realisasi = df_tidak_realisasi[val_col].sum()
+
     # --- 4. TAMPILAN DASHBOARD (DENGAN DATA FILTERED) ---
     c1, c2, c3, c4 = st.columns(4)
     df_merge_glob = pd.merge(df_ren_filtered[[rup_col, val_col]], df_real_agg_filtered[[rup_col, val_col]], on=rup_col, how='right', indicator=True)
@@ -105,9 +113,52 @@ if file_ren and file_real:
     c3.markdown(f'<div class="stat-card"><div class="stat-label">TOTAL REALISASI</div><div class="stat-value">Rp {df_real_filtered[val_col].sum():,.0f}</div></div>', unsafe_allow_html=True)
     c4.markdown(f'<div class="stat-card"><div class="stat-label">EFISIENSI ANGGARAN</div><div class="stat-value">Rp {df_ren_filtered[val_col].sum() - df_real_filtered[val_col].sum():,.0f}</div></div>', unsafe_allow_html=True)
 
-    # --- 5. TABEL LAPORAN ---
+    # --- FITUR BARU: RINGKASAN TIDAK TEREALISASI ---
     st.divider()
-    st.subheader(f"📑 Laporan Audit Rekonsiliasi - {satker_terpilih}")
+    st.subheader(f"❌ Ringkasan Paket Tidak Terealisasi ({satker_terpilih})")
+    
+    mc1, mc2 = st.columns(2)
+    with mc1:
+        st.metric(label="Jumlah Paket Tidak Terealisasi", value=f"{total_pkt_tidak_realisasi} Paket")
+    with mc2:
+        st.metric(label="Total Anggaran Tidak Terealisasi", value=f"Rp {total_anggaran_tidak_realisasi:,.0f}")
+
+    # --- TAB DETAIL PENCARIAN PAKET TIDAK TEREALISASI ---
+    search_keyword = st.text_input("🔍 Cari Paket Tidak Terealisasi (Masukkan Nama Paket / Nama Satker / Metode):")
+    
+    # Deteksi kolom nama paket (menghindari error jika nama kolom berbeda di CSV Mas)
+    nama_paket_col = 'Nama Paket' if 'Nama Paket' in df_tidak_realisasi.columns else (df_tidak_realisasi.columns[2] if len(df_tidak_realisasi.columns) > 2 else df_tidak_realisasi.columns[0])
+    
+    # Jalankan filter pencarian jika user mengetik sesuatu
+    if search_keyword:
+        df_tidak_realisasi_display = df_tidak_realisasi[
+            df_tidak_realisasi[nama_paket_col].astype(str).str.contains(search_keyword, case=False, na=False) |
+            df_tidak_realisasi[satker_col].astype(str).str.contains(search_keyword, case=False, na=False)
+        ]
+    else:
+        df_tidak_realisasi_display = df_tidak_realisasi
+
+    # Tampilkan tabel detail paket tidak terealisasi
+    if not df_tidak_realisasi_display.empty:
+        st.caption(f"Menampilkan {len(df_tidak_realisasi_display)} paket yang tidak terealisasi")
+        # Pilih beberapa kolom penting saja agar tabel rapi di layar
+        kolom_tampil = [satker_col, rup_col, nama_paket_col, val_col]
+        # Pastikan kolom_tampil ada di dataframe
+        kolom_tampil = [col for col in kolom_tampil if col in df_tidak_realisasi_display.columns]
+        
+        st.dataframe(df_tidak_realisasi_display[kolom_tampil].style.format({val_col: "{:,.0f}"}), use_container_width=True)
+        
+        # Tombol download khusus data tidak terealisasi
+        buffer_tr = io.BytesIO()
+        with pd.ExcelWriter(buffer_tr, engine='xlsxwriter') as writer:
+            df_tidak_realisasi_display.to_excel(writer, sheet_name='Tidak_Terealisasi', index=False)
+        st.download_button(f"📥 Download Data Tidak Terealisasi ({satker_terpilih})", buffer_tr.getvalue(), f"Tidak_Terealisasi_{satker_terpilih.replace(' ', '_')}.xlsx")
+    else:
+        st.info("Tidak ada paket tidak terealisasi yang cocok dengan pencarian.")
+
+    # --- 5. TABEL LAPORAN UTAMA (REKAP PER SATKER) ---
+    st.divider()
+    st.subheader(f"📑 Laporan Audit Rekonsiliasi Keseluruhan - {satker_terpilih}")
     
     rekap_list = []
     
@@ -145,7 +196,7 @@ if file_ren and file_real:
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
         df_final.to_excel(writer, sheet_name='Laporan_Audit', index=False)
-    st.download_button(f"📥 Download Laporan {satker_terpilih}", buffer.getvalue(), f"Laporan_Audit_{satker_terpilih.replace(' ', '_')}.xlsx")
+    st.download_button(f"📥 Download Laporan Utama {satker_terpilih}", buffer.getvalue(), f"Laporan_Audit_{satker_terpilih.replace(' ', '_')}.xlsx")
 
 else:
     st.info("👋 Selamat Datang! Silakan unggah data SIRUP dan Realisasi pada sidebar.")

@@ -8,9 +8,7 @@ st.set_page_config(page_title="Dashboard Rekonsiliasi", layout="wide", page_icon
 
 st.markdown("""
 <style>
-body {
-    background-color: #f4f6f7;
-}
+body { background-color: #f4f6f7; }
 .stat-card {
     background-color: #ffffff; 
     padding: 15px; 
@@ -35,7 +33,10 @@ def read_csv_smart(file):
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.image("LOGO PEMPROV BARU.png", width=80)
+    try:
+        st.image("LOGO PEMPROV BARU.png", width=80)
+    except:
+        st.warning("Logo tidak ditemukan")
     st.markdown("## 📌 Rekonsiliasi SIRUP & Realisasi")
     file_ren = st.file_uploader("1. Upload Data SIRUP", type=['csv'])
     file_real = st.file_uploader("2. Upload Data Realisasi", type=['csv'])
@@ -108,10 +109,22 @@ if file_ren and file_real:
     fig = px.bar(df_plot, x=rup_col, y=[val_col+'_Rencana', val_col+'_Realisasi'], barmode='group', title="Perbandingan Nilai RUP vs Realisasi")
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- TABEL DETAIL ---
+    # --- TABEL DETAIL TANPA .style ---
     st.markdown("## 📑 Tabel Detail Rekonsiliasi")
     df_detail = pd.merge(df_ren, df_real, on=rup_col, how='outer', suffixes=('_Rencana','_Realisasi'))
-    st.dataframe(df_detail.style.format({val_col+'_Rencana': "{:,.0f}", val_col+'_Realisasi': "{:,.0f}"}), use_container_width=True)
+    df_display = df_detail.copy()
+    if val_col+'_Rencana' in df_display.columns:
+        df_display[val_col+'_Rencana'] = df_display[val_col+'_Rencana'].apply(lambda x: f"{x:,.0f}")
+    if val_col+'_Realisasi' in df_display.columns:
+        df_display[val_col+'_Realisasi'] = df_display[val_col+'_Realisasi'].apply(lambda x: f"{x:,.0f}")
+    st.dataframe(df_display, use_container_width=True)
+
+    # --- DOWNLOAD EXCEL ---
+    st.markdown("## 🗂️ Unduh Laporan")
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+        df_display.to_excel(writer, sheet_name='Detail_Rekonsiliasi', index=False)
+    st.download_button("📥 Download Excel", data=buf.getvalue(), file_name="Laporan_Rekonsiliasi.xlsx", use_container_width=True)
 
 else:
     st.info("👋 Silakan unggah file SIRUP dan Realisasi di sidebar.")

@@ -76,9 +76,15 @@ if file_ren and file_real:
     tidak_teralisasi = df_ren[~df_ren[rup_col].isin(df_real[rup_col])]
     total_real = df_real[val_col].sum()
 
+    # Tambahan: Tokodaring (misal dari kolom Metode Pengadaan)
+    if 'Metode Pengadaan' in df_real.columns:
+        df_tokodaring = df_real[df_real['Metode Pengadaan'].str.lower().str.contains('tokodaring', na=False)]
+    else:
+        df_tokodaring = pd.DataFrame(columns=df_real.columns)
+
     # --- DASHBOARD METRIK ---
     st.markdown("## 📊 Ringkasan Rekonsiliasi")
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3 = st.columns([1.5, 2, 1.5])
 
     c1.markdown(f"""
     <div class="stat-card">
@@ -106,25 +112,54 @@ if file_ren and file_real:
     # --- VISUALISASI ---
     st.markdown("## 📈 Grafik Realisasi vs Rencana")
     df_plot = pd.merge(df_ren[[rup_col, val_col]], df_real[[rup_col, val_col]], on=rup_col, how='outer', suffixes=('_Rencana', '_Realisasi'))
-    fig = px.bar(df_plot, x=rup_col, y=[val_col+'_Rencana', val_col+'_Realisasi'], barmode='group', title="Perbandingan Nilai RUP vs Realisasi")
+    fig = px.bar(
+        df_plot,
+        x=rup_col,
+        y=[val_col+'_Rencana', val_col+'_Realisasi'],
+        barmode='group',
+        title="Perbandingan Nilai RUP vs Realisasi",
+        labels={val_col+'_Rencana':'Rencana', val_col+'_Realisasi':'Realisasi'}
+    )
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- TABEL DETAIL TANPA .style ---
+    # --- TABEL DETAIL DENGAN TABS ---
     st.markdown("## 📑 Tabel Detail Rekonsiliasi")
-    df_detail = pd.merge(df_ren, df_real, on=rup_col, how='outer', suffixes=('_Rencana','_Realisasi'))
-    df_display = df_detail.copy()
-    if val_col+'_Rencana' in df_display.columns:
-        df_display[val_col+'_Rencana'] = df_display[val_col+'_Rencana'].apply(lambda x: f"{x:,.0f}")
-    if val_col+'_Realisasi' in df_display.columns:
-        df_display[val_col+'_Realisasi'] = df_display[val_col+'_Realisasi'].apply(lambda x: f"{x:,.0f}")
-    st.dataframe(df_display, use_container_width=True)
+    tab1, tab2, tab3 = st.tabs(["Semua RUP", "Tidak Terealisasi", "Tokodaring"])
 
-    # --- DOWNLOAD EXCEL ---
-    st.markdown("## 🗂️ Unduh Laporan")
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-        df_display.to_excel(writer, sheet_name='Detail_Rekonsiliasi', index=False)
-    st.download_button("📥 Download Excel", data=buf.getvalue(), file_name="Laporan_Rekonsiliasi.xlsx", use_container_width=True)
+    # Semua RUP
+    df_all = pd.merge(df_ren, df_real, on=rup_col, how='outer', suffixes=('_Rencana','_Realisasi'))
+    df_all_display = df_all.copy()
+    if val_col+'_Rencana' in df_all_display.columns:
+        df_all_display[val_col+'_Rencana'] = df_all_display[val_col+'_Rencana'].apply(lambda x: f"{x:,.0f}")
+    if val_col+'_Realisasi' in df_all_display.columns:
+        df_all_display[val_col+'_Realisasi'] = df_all_display[val_col+'_Realisasi'].apply(lambda x: f"{x:,.0f}")
+    with tab1:
+        st.dataframe(df_all_display, use_container_width=True)
+
+    # Tidak Terealisasi
+    df_tidak_display = tidak_teralisasi.copy()
+    if val_col in df_tidak_display.columns:
+        df_tidak_display[val_col] = df_tidak_display[val_col].apply(lambda x: f"{x:,.0f}")
+    with tab2:
+        st.dataframe(df_tidak_display, use_container_width=True)
+
+    # Tokodaring
+    df_td_display = df_tokodaring.copy()
+    if val_col in df_td_display.columns:
+        df_td_display[val_col] = df_td_display[val_col].apply(lambda x: f"{x:,.0f}")
+    with tab3:
+        st.dataframe(df_td_display, use_container_width=True)
+
+    # --- DOWNLOAD EXCEL PER TAB ---
+    st.markdown("## 🗂️ Unduh Laporan Excel")
+    download_cols = ["Semua_RUP","Tidak_Terealisasi","Tokodaring"]
+    download_dfs = [df_all_display, df_tidak_display, df_td_display]
+
+    for name, df_dl in zip(download_cols, download_dfs):
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+            df_dl.to_excel(writer, sheet_name=name, index=False)
+        st.download_button(f"📥 Download {name}", data=buf.getvalue(), file_name=f"Laporan_{name}.xlsx", use_container_width=True)
 
 else:
     st.info("👋 Silakan unggah file SIRUP dan Realisasi di sidebar.")

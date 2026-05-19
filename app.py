@@ -16,7 +16,7 @@ body { background-color: #f4f6f7; }
 
 # --- LOGO DI TENGAH ---
 st.markdown(
-    "<div style='text-align: center;'><img src='LOGO_PEMPROV_BARU.png' width='200'></div>",
+    "<div style='text-align: center;'><img src='LOGO PEMPROV BARU.png' width='200'></div>",
     unsafe_allow_html=True
 )
 

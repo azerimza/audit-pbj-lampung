@@ -78,11 +78,6 @@ if file_ren and file_real:
         if val not in df.columns: val = val_col
         return len(df), df[val].sum() if val in df.columns else 0
 
-    def add_index(df):
-        df = df.copy()
-        df.insert(0, "No", range(1, len(df)+1))
-        return df
-
     # --- Hitung Ringkasan Rekonsiliasi ---
     jumlah_paket_sesuai, jumlah_anggaran_sesuai = hitung(df_sesuai)
     jumlah_paket_real_only, jumlah_anggaran_real_only = hitung(df_real_only)
@@ -101,21 +96,35 @@ if file_ren and file_real:
     cols[4].markdown(f"<div class='stat-card' style='border-top:5px solid #c0392b;'><div class='stat-label'>🔴 Swakelola Tidak Tercatat</div><div class='stat-value'>{jumlah_paket_swakelola_tidak_tercatat} Paket</div><div>Rp {jumlah_anggaran_swakelola_tidak_tercatat:,.0f}</div></div>", unsafe_allow_html=True)
     cols[5].markdown(f"<div class='stat-card' style='border-top:5px solid #9b59b6;'><div class='stat-label'>🛒 Toko Daring</div><div class='stat-value'>{jumlah_paket_tokodaring} Paket</div><div>Rp {jumlah_anggaran_tokodaring:,.0f}</div></div>", unsafe_allow_html=True)
 
-    # --- TAB DETAIL PER KATEGORI DENGAN NOMOR URUT ---
-    st.markdown("## 📑 Tabel Detail per Kategori")
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-        ["Sesuai RUP","Hanya Realisasi","Belum Terealisasi","Swakelola Tercatat","Swakelola Tidak Tercatat","Toko Daring"]
-    )
-    with tab1: st.dataframe(add_index(df_sesuai), use_container_width=True)
-    with tab2: st.dataframe(add_index(df_real_only), use_container_width=True)
-    with tab3: st.dataframe(add_index(df_belum_teralisasi), use_container_width=True)
-    with tab4: st.dataframe(add_index(df_swakelola_tercatat), use_container_width=True)
-    with tab5: st.dataframe(add_index(df_swakelola_tidak_tercatat), use_container_width=True)
-    with tab6: st.dataframe(add_index(df_tokodaring), use_container_width=True)
+    # --- RINGKASAN HASIL ANALISA DATA.INAPROC ---
+    df_analisa = {
+        "Perencanaan Penyedia": df_ren[~df_ren['Metode Pengadaan'].str.contains('swakelola', na=False)],
+        "Perencanaan Swakelola": df_ren[df_ren['Cara Pengadaan'].str.contains('swakelola', na=False)],
+        "Realisasi Penyedia": df_real[~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)],
+        # Flex filter: cek Sumber Transaksi dan Metode Pengadaan
+        "Realisasi Swakelola": df_real[
+            df_real['Sumber Transaksi'].str.contains('swakelola', na=False) |
+            df_real['Metode Pengadaan'].str.contains('swakelola', na=False)
+        ]
+    }
 
-    # --- DOWNLOAD EXCEL SESUAI NOMOR URUT ---
+    st.markdown("## 📌 Ringkasan Hasil Analisa (Data.inaproc)")
+    cols = st.columns(4)
+    for i, (k, df_tmp) in enumerate(df_analisa.items()):
+        jml, ang = hitung(df_tmp)
+        cols[i].markdown(f"<div class='stat-card'><div class='stat-label'>{k}</div><div class='stat-value'>{jml} Paket</div><div>Rp {ang:,.0f}</div></div>", unsafe_allow_html=True)
+
+    # --- TAB DETAIL PER KATEGORI (Sesuai Analisa) ---
+    st.markdown("## 📑 Tabel Detail per Kategori (Sesuai Hasil Analisa)")
+    tab1, tab2, tab3, tab4 = st.tabs(list(df_analisa.keys()))
+    for tab, (k, df_tmp) in zip([tab1, tab2, tab3, tab4], df_analisa.items()):
+        with tab:
+            st.dataframe(df_tmp,use_container_width=True)
+
+    # --- DOWNLOAD EXCEL ---
     st.markdown("## 🗂️ Unduh Laporan Excel")
     download_data = {
+        **df_analisa,
         "Sesuai_RUP": df_sesuai,
         "Hanya_Realisasi": df_real_only,
         "Belum_Terealisasi": df_belum_teralisasi,
@@ -126,9 +135,8 @@ if file_ren and file_real:
     for name, df_dl in download_data.items():
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-            df_dl_indexed = add_index(df_dl)
             sheet_name = name[:31]
-            df_dl_indexed.to_excel(writer, sheet_name=sheet_name, index=False)
+            df_dl.to_excel(writer, sheet_name=sheet_name, index=False)
         st.download_button(f"📥 Download {name}", data=buf.getvalue(),
                            file_name=f"Laporan_{name}_{satker_terpilih.replace(' ','_')}.xlsx",
                            use_container_width=True)

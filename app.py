@@ -40,39 +40,36 @@ if file_ren and file_real:
         if 'Cara Pengadaan' in df.columns: df['Cara Pengadaan'] = df['Cara Pengadaan'].astype(str).str.lower()
         if 'Sumber Transaksi' in df.columns: df['Sumber Transaksi'] = df['Sumber Transaksi'].astype(str).str.lower()
         if 'Nama Satuan Kerja' in df.columns: df['Nama Satuan Kerja'] = df['Nama Satuan Kerja'].astype(str).str.strip()
+        if rup_col in df.columns: df[rup_col] = df[rup_col].astype(str).str.strip()
 
-    # --- Filter per Satuan Kerja ---
+    # Filter per Satuan Kerja
     list_satker = ["Semua"] + sorted(df_ren['Nama Satuan Kerja'].dropna().unique())
     satker_terpilih = st.sidebar.selectbox("Pilih Satuan Kerja", list_satker)
     if satker_terpilih != "Semua":
-        def filter_satker(df): return df[df['Nama Satuan Kerja']==satker_terpilih] if 'Nama Satuan Kerja' in df.columns else df
-        df_ren = filter_satker(df_ren)
-        df_real = filter_satker(df_real)
+        df_ren = df_ren[df_ren['Nama Satuan Kerja']==satker_terpilih]
+        df_real = df_real[df_real['Nama Satuan Kerja']==satker_terpilih]
 
-    # =========================
-    # REKONSILIASI
-    # =========================
-    # Sesuai RUP (Penyedia)
+    # --- REKONSILIASI ---
     df_ren_penyedia = df_ren[~df_ren['Metode Pengadaan'].str.contains('swakelola', na=False)]
     df_real_penyedia = df_real[~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)]
-    df_real_penyedia_sum = df_real_penyedia.groupby(rup_col, as_index=False)[val_col].sum().rename(columns={val_col:'Anggaran_Realisasi'})
-    df_sesuai = pd.merge(df_ren_penyedia.drop_duplicates(subset=[rup_col]),
-                         df_real_penyedia_sum, on=rup_col, how='inner')
+    
+    # Pastikan merge aman dengan duplikasi dihapus
+    df_real_penyedia_sum = df_real_penyedia.groupby(rup_col, as_index=False)[val_col].sum()
+    df_ren_penyedia_clean = df_ren_penyedia.drop_duplicates(subset=[rup_col])
+    df_real_penyedia_sum_clean = df_real_penyedia_sum.drop_duplicates(subset=[rup_col])
+    df_sesuai = pd.merge(df_ren_penyedia_clean, df_real_penyedia_sum_clean, on=rup_col, how='inner')
 
-    # Hanya Realisasi
-    df_real_only = df_real[
+    df_real_only = df_real_only = df_real[
         (~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)) &
         (~df_real['Sumber Transaksi'].str.contains('tokodaring', na=False))
     ]
     df_real_only = df_real_only[~df_real_only[rup_col].isin(df_ren[rup_col])]
 
-    # Belum Terealisasi
     df_belum_teralisasi = df_ren[
         (~df_ren[rup_col].isin(df_real[rup_col])) &
         (df_ren['Cara Pengadaan'].str.contains('penyedia', case=False, na=False))
     ]
 
-    # Swakelola
     df_ren_swa = df_ren[df_ren['Cara Pengadaan'].str.contains('swakelola', na=False)]
     df_real_swa = df_real[df_real['Sumber Transaksi'].str.contains('swakelola', na=False)]
     df_swakelola_tercatat = pd.merge(
@@ -81,11 +78,8 @@ if file_ren and file_real:
         on=rup_col, how='inner'
     )
     df_swakelola_tidak_tercatat = df_ren_swa[~df_ren_swa[rup_col].isin(df_real_swa[rup_col])]
-
-    # Toko Daring
     df_tokodaring = df_real[df_real['Sumber Transaksi'].str.contains('tokodaring', na=False)]
 
-    # Hitung paket & anggaran
     def hitung(df, val='Anggaran_Realisasi'):
         if val not in df.columns: val = val_col
         return len(df), df[val].sum() if val in df.columns else 0
@@ -97,7 +91,7 @@ if file_ren and file_real:
     jumlah_paket_swakelola_tidak_tercatat, jumlah_anggaran_swakelola_tidak_tercatat = hitung(df_swakelola_tidak_tercatat)
     jumlah_paket_tokodaring, jumlah_anggaran_tokodaring = hitung(df_tokodaring)
 
-    # --- Tampilkan Ringkasan Rekonsiliasi ---
+    # --- Ringkasan Rekonsiliasi Kotak-Kotak ---
     st.markdown("## 📊 Ringkasan Rekonsiliasi")
     cols = st.columns([1.5,2,1.5,1.5,1.5,1.5])
     cols[0].markdown(f"<div class='stat-card'><div class='stat-label'>✅ Sesuai RUP</div><div class='stat-value'>{jumlah_paket_sesuai} Paket</div><div>Rp {jumlah_anggaran_sesuai:,.0f}</div></div>", unsafe_allow_html=True)
@@ -107,9 +101,7 @@ if file_ren and file_real:
     cols[4].markdown(f"<div class='stat-card' style='border-top:5px solid #c0392b;'><div class='stat-label'>🔴 Swakelola Tidak Tercatat</div><div class='stat-value'>{jumlah_paket_swakelola_tidak_tercatat} Paket</div><div>Rp {jumlah_anggaran_swakelola_tidak_tercatat:,.0f}</div></div>", unsafe_allow_html=True)
     cols[5].markdown(f"<div class='stat-card' style='border-top:5px solid #9b59b6;'><div class='stat-label'>🛒 Toko Daring</div><div class='stat-value'>{jumlah_paket_tokodaring} Paket</div><div>Rp {jumlah_anggaran_tokodaring:,.0f}</div></div>", unsafe_allow_html=True)
 
-    # =========================
-    # Ringkasan Hasil Analisa Data.inaproc
-    # =========================
+    # --- Ringkasan Hasil Analisa (Data.inaproc) Kotak-Kotak ---
     df_ren_penyedia = df_ren[~df_ren['Metode Pengadaan'].str.contains('swakelola', na=False)]
     df_ren_swakelola = df_ren[df_ren['Cara Pengadaan'].str.contains('swakelola', na=False)]
     df_real_penyedia = df_real[~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)]
@@ -131,11 +123,8 @@ if file_ren and file_real:
     cols[2].markdown(f"<div class='stat-card'><div class='stat-label'>Realisasi Penyedia</div><div class='stat-value'>{jml_paket_real_penyedia} Paket</div><div>Rp {anggaran_real_penyedia:,.0f}</div></div>", unsafe_allow_html=True)
     cols[3].markdown(f"<div class='stat-card'><div class='stat-label'>Realisasi Swakelola</div><div class='stat-value'>{jml_paket_real_swakelola} Paket</div><div>Rp {anggaran_real_swakelola:,.0f}</div></div>", unsafe_allow_html=True)
 
-    # =========================
-    # Download Excel Ringkasan
-    # =========================
+    # --- Download Excel ---
     st.markdown("## 🗂️ Download Excel Ringkasan")
-
     download_dict = {
         "Rekonsiliasi_Sesuai_RUP": df_sesuai,
         "Rekonsiliasi_Hanya_Realisasi": df_real_only,

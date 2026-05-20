@@ -26,14 +26,10 @@ if file_ren and file_real and tombol_proses:
     # --- Bersihkan kolom & tipe ---
     for df in [df_ren, df_real]:
         df[rup_col] = df[rup_col].astype(str).str.strip()
-        if 'Metode Pengadaan' in df.columns:
-            df['Metode Pengadaan'] = df['Metode Pengadaan'].astype(str).str.lower()
-        if 'Sumber Transaksi' in df.columns:
-            df['Sumber Transaksi'] = df['Sumber Transaksi'].astype(str).str.lower().str.strip()
-        if 'Cara Pengadaan' in df.columns:
-            df['Cara Pengadaan'] = df['Cara Pengadaan'].astype(str).str.lower()
-        if 'Nama Satuan Kerja' in df.columns:
-            df['Nama Satuan Kerja'] = df['Nama Satuan Kerja'].astype(str).str.strip()
+        if 'Metode Pengadaan' in df.columns: df['Metode Pengadaan'] = df['Metode Pengadaan'].astype(str).str.lower()
+        if 'Sumber Transaksi' in df.columns: df['Sumber Transaksi'] = df['Sumber Transaksi'].astype(str).str.lower().str.strip()
+        if 'Cara Pengadaan' in df.columns: df['Cara Pengadaan'] = df['Cara Pengadaan'].astype(str).str.lower()
+        if 'Nama Satuan Kerja' in df.columns: df['Nama Satuan Kerja'] = df['Nama Satuan Kerja'].astype(str).str.strip()
         df[val_col] = pd.to_numeric(df[val_col], errors='coerce').fillna(0)
 
     # --- Filter Satuan Kerja ---
@@ -52,7 +48,10 @@ if file_ren and file_real and tombol_proses:
     df_sesuai = pd.merge(df_ren_unique, df_real_sum, on=rup_col, how='inner')
 
     # --- Hanya Realisasi (exclude Swakelola) ---
-    df_real_only = df_real_unique[~df_real_unique['Metode Pengadaan'].str.contains('swakelola', na=False)]
+    df_real_only = df_real[~df_real['Sumber Transaksi'].str.contains('swakelola', na=False) &
+                           ~df_real[rup_col].isin(df_ren[rup_col])]
+    jumlah_paket_real_only = df_real_only[rup_col].nunique()  # paket unik
+    jumlah_anggaran_real_only = df_real_only[val_col].sum()   # anggaran semua baris
 
     # --- Belum Terealisasi ---
     df_belum = df_ren_unique[~df_ren_unique[rup_col].isin(df_real_unique[rup_col])]
@@ -88,7 +87,10 @@ if file_ren and file_real and tombol_proses:
     }
 
     for key, df_k in kategori.items():
-        paket, anggaran = hitung(df_k)
+        if key=="Hanya Realisasi":
+            paket, anggaran = jumlah_paket_real_only, jumlah_anggaran_real_only
+        else:
+            paket, anggaran = hitung(df_k)
         st.markdown(f"**{key}:** {paket} Paket, Rp {anggaran:,.0f}")
 
     # --- Tabel Detail ---

@@ -3,7 +3,7 @@ import pandas as pd
 import io
 
 # --- CONFIG & STYLING ---
-st.set_page_config(page_title="Dashboard Rekonsiliasi", layout="wide", page_icon="📊")
+st.set_page_config(page_title="Dashboard Rekonsiliasi", layout="wide")
 st.markdown("""
 <style>
 body { background-color: #f4f6f7; }
@@ -46,27 +46,28 @@ if file_ren and file_real and tombol_proses:
     list_satker = ["Semua"] + sorted(df_ren['Nama Satuan Kerja'].dropna().unique())
     satker_terpilih = st.sidebar.selectbox("Pilih Satuan Kerja", list_satker)
 
+    # --- HAPUS DUPLIKASI & JADI NUMERIC ---
+    df_ren[val_col] = pd.to_numeric(df_ren[val_col], errors='coerce').fillna(0)
+    df_real[val_col] = pd.to_numeric(df_real[val_col], errors='coerce').fillna(0)
+    df_ren = df_ren.drop_duplicates(subset=[rup_col])
+    df_real = df_real.drop_duplicates(subset=[rup_col])
+
     # --- REKONSILIASI ---
     df_ren_penyedia = df_ren[~df_ren['Metode Pengadaan'].str.contains('swakelola', na=False)]
     df_real_penyedia = df_real[~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)]
     df_real_penyedia_sum = df_real_penyedia.groupby(rup_col, as_index=False)[val_col].sum().rename(columns={val_col:'Anggaran_Realisasi'})
-    df_sesuai = pd.merge(df_ren_penyedia.drop_duplicates(subset=[rup_col]),
-                         df_real_penyedia_sum, on=rup_col, how='inner') if not df_ren_penyedia.empty else pd.DataFrame(columns=[rup_col,'Anggaran_Realisasi'])
+    df_sesuai = pd.merge(df_ren_penyedia, df_real_penyedia_sum, on=rup_col, how='inner')
 
-    df_real_only = df_real[(~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)) & (~df_real['Sumber Transaksi'].str.contains('tokodaring', na=False))]
-    if rup_col in df_ren.columns: df_real_only = df_real_only[~df_real_only[rup_col].isin(df_ren[rup_col])]
-
-    df_belum_teralisasi = df_ren[(~df_ren[rup_col].isin(df_real[rup_col])) & (df_ren['Cara Pengadaan'].str.contains('penyedia', case=False, na=False))]
+    df_real_only = df_real[~df_real[rup_col].isin(df_ren[rup_col])]
+    df_belum_teralisasi = df_ren[~df_ren[rup_col].isin(df_real[rup_col])]
 
     df_ren_swa = df_ren[df_ren['Cara Pengadaan'].str.contains('swakelola', na=False)]
     df_real_swa = df_real[df_real['Sumber Transaksi'].str.contains('swakelola', na=False)]
-    df_swakelola_tercatat = pd.merge(df_ren_swa.drop_duplicates(subset=[rup_col]),
-                                     df_real_swa.groupby(rup_col, as_index=False)[val_col].sum().rename(columns={val_col:'Anggaran_Realisasi'}),
-                                     on=rup_col, how='inner')
+    df_swakelola_tercatat = pd.merge(df_ren_swa, df_real_swa.groupby(rup_col, as_index=False)[val_col].sum().rename(columns={val_col:'Anggaran_Realisasi'}), on=rup_col, how='inner')
     df_swakelola_tidak_tercatat = df_ren_swa[~df_ren_swa[rup_col].isin(df_real_swa[rup_col])]
     df_tokodaring = df_real[df_real['Sumber Transaksi'].str.contains('tokodaring', na=False)]
 
-    # --- FILTER PER SATUAN KERJA ---
+    # --- FILTER SATKER ---
     if satker_terpilih != "Semua":
         def filter_satker(df): return df[df['Nama Satuan Kerja']==satker_terpilih] if 'Nama Satuan Kerja' in df.columns else df
         df_sesuai = filter_satker(df_sesuai)
@@ -76,6 +77,7 @@ if file_ren and file_real and tombol_proses:
         df_swakelola_tidak_tercatat = filter_satker(df_swakelola_tidak_tercatat)
         df_tokodaring = filter_satker(df_tokodaring)
 
+    # --- HITUNG ---
     def hitung(df, val='Anggaran_Realisasi'):
         if val not in df.columns: val = val_col
         return len(df), df[val].sum() if val in df.columns else 0
@@ -89,14 +91,7 @@ if file_ren and file_real and tombol_proses:
     df_ren_penyedia_analisa = df_ren[~df_ren['Metode Pengadaan'].str.contains('swakelola', na=False)]
     df_real_penyedia_analisa = df_real[~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)]
     df_ren_swakelola_analisa = df_ren[df_ren['Cara Pengadaan'].str.contains('swakelola', na=False)]
-    df_real_swakelola_analisa = df_real[(df_real['Sumber Transaksi'].str.contains('swakelola', na=False)) |
-                                        (df_real['Metode Pengadaan'].str.contains('swakelola', na=False))]
-
-    if satker_terpilih != "Semua":
-        df_ren_penyedia_analisa = df_ren_penyedia_analisa[df_ren_penyedia_analisa['Nama Satuan Kerja']==satker_terpilih]
-        df_real_penyedia_analisa = df_real_penyedia_analisa[df_real_penyedia_analisa['Nama Satuan Kerja']==satker_terpilih]
-        df_ren_swakelola_analisa = df_ren_swakelola_analisa[df_ren_swakelola_analisa['Nama Satuan Kerja']==satker_terpilih]
-        df_real_swakelola_analisa = df_real_swakelola_analisa[df_real_swakelola_analisa['Nama Satuan Kerja']==satker_terpilih]
+    df_real_swakelola_analisa = df_real[df_real['Sumber Transaksi'].str.contains('swakelola', na=False)]
 
     jumlah_pkt_ren_penyedia, jumlah_ang_ren_penyedia = hitung(df_ren_penyedia_analisa)
     jumlah_pkt_real_penyedia, jumlah_ang_real_penyedia = hitung(df_real_penyedia_analisa)
@@ -127,19 +122,15 @@ if file_ren and file_real and tombol_proses:
     cols_r[4].markdown(f"<div class='stat-card'><div class='stat-label'>Swakelola Tidak Tercatat</div><div class='stat-value'>{jumlah_paket_swakelola_tidak_tercatat} Paket</div><div>Rp {jumlah_anggaran_swakelola_tidak_tercatat:,.0f}</div></div>", unsafe_allow_html=True)
     cols_r[5].markdown(f"<div class='stat-card'><div class='stat-label'>Toko Daring</div><div class='stat-value'>{jumlah_paket_tokodaring} Paket</div><div>Rp {jumlah_anggaran_tokodaring:,.0f}</div></div>", unsafe_allow_html=True)
 
-    # --- TAB DETAIL PER KATEGORI DENGAN NOMOR URUT ---
+    # --- Tabel Detail & Download Excel ---
     st.markdown("## Tabel Detail per Kategori")
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-        ["Sesuai RUP","Hanya Realisasi","Belum Terealisasi","Swakelola Tercatat","Swakelola Tidak Tercatat","Toko Daring"]
-    )
-    with tab1: st.dataframe(add_index(df_sesuai), use_container_width=True)
-    with tab2: st.dataframe(add_index(df_real_only), use_container_width=True)
-    with tab3: st.dataframe(add_index(df_belum_teralisasi), use_container_width=True)
-    with tab4: st.dataframe(add_index(df_swakelola_tercatat), use_container_width=True)
-    with tab5: st.dataframe(add_index(df_swakelola_tidak_tercatat), use_container_width=True)
-    with tab6: st.dataframe(add_index(df_tokodaring), use_container_width=True)
+    tabs = ["Sesuai RUP","Hanya Realisasi","Belum Terealisasi","Swakelola Tercatat","Swakelola Tidak Tercatat","Toko Daring"]
+    dfs = [df_sesuai, df_real_only, df_belum_teralisasi, df_swakelola_tercatat, df_swakelola_tidak_tercatat, df_tokodaring]
+    st_tabs = st.tabs(tabs)
+    for tab, df_tab in zip(st_tabs, dfs):
+        with tab:
+            st.dataframe(add_index(df_tab), use_container_width=True)
 
-    # --- DOWNLOAD EXCEL ---
     st.markdown("## Unduh Laporan Excel")
     download_data = {
         "Perencanaan_Penyedia": df_ren_penyedia_analisa,
@@ -157,8 +148,7 @@ if file_ren and file_real and tombol_proses:
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
             df_dl_indexed = add_index(df_dl)
-            sheet_name = name[:31]
-            df_dl_indexed.to_excel(writer, sheet_name=sheet_name, index=False)
+            df_dl_indexed.to_excel(writer, sheet_name=name[:31], index=False)
         st.download_button(f"Download {name}", data=buf.getvalue(),
                            file_name=f"Laporan_{name}_{satker_terpilih.replace(' ','_')}.xlsx",
                            use_container_width=True)

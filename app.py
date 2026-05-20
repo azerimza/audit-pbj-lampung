@@ -47,11 +47,11 @@ if file_ren and file_real and tombol_proses:
     df_real_sum = df_real_unique.groupby(rup_col, as_index=False)[val_col].sum()
     df_sesuai = pd.merge(df_ren_unique, df_real_sum, on=rup_col, how='inner')
 
-    # --- Hanya Realisasi (exclude Swakelola) ---
-    df_real_only = df_real[~df_real['Sumber Transaksi'].str.contains('swakelola', na=False) &
-                           ~df_real[rup_col].isin(df_ren[rup_col])]
-    jumlah_paket_real_only = df_real_only[rup_col].nunique()  # paket unik
-    jumlah_anggaran_real_only = df_real_only[val_col].sum()   # anggaran semua baris
+    # --- Hanya Realisasi ---
+    df_real_only = df_real[~df_real[rup_col].isin(df_ren[rup_col])]
+    df_real_only = df_real_only[~df_real_only['Sumber Transaksi'].str.contains('swakelola', na=False)]
+    jumlah_paket_real_only = df_real_only[rup_col].nunique()
+    jumlah_anggaran_real_only = df_real_only[val_col].sum()
 
     # --- Belum Terealisasi ---
     df_belum = df_ren_unique[~df_ren_unique[rup_col].isin(df_real_unique[rup_col])]

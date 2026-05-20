@@ -65,6 +65,7 @@ if file_ren and file_real:
     df_swakelola_tidak_tercatat = df_ren_swa[~df_ren_swa[rup_col].isin(df_real_swa[rup_col])]
     df_tokodaring = df_real[df_real['Sumber Transaksi'].str.contains('tokodaring', na=False)]
 
+    # --- FILTER SATUAN KERJA ---
     if satker_terpilih != "Semua":
         def filter_satker(df): return df[df['Nama Satuan Kerja']==satker_terpilih] if 'Nama Satuan Kerja' in df.columns else df
         df_sesuai = filter_satker(df_sesuai)
@@ -78,53 +79,75 @@ if file_ren and file_real:
         if val not in df.columns: val = val_col
         return len(df), df[val].sum() if val in df.columns else 0
 
-    # --- Hitung Ringkasan Rekonsiliasi ---
-    jumlah_paket_sesuai, jumlah_anggaran_sesuai = hitung(df_sesuai)
-    jumlah_paket_real_only, jumlah_anggaran_real_only = hitung(df_real_only)
-    jumlah_paket_belum, jumlah_anggaran_belum = hitung(df_belum_teralisasi)
-    jumlah_paket_swakelola_tercatat, jumlah_anggaran_swakelola_tercatat = hitung(df_swakelola_tercatat)
-    jumlah_paket_swakelola_tidak_tercatat, jumlah_anggaran_swakelola_tidak_tercatat = hitung(df_swakelola_tidak_tercatat)
-    jumlah_paket_tokodaring, jumlah_anggaran_tokodaring = hitung(df_tokodaring)
+    def add_index(df):
+        df = df.copy()
+        df.insert(0, "No", range(1, len(df)+1))
+        return df
 
-    # --- DASHBOARD METRIK REKONSILIASI ---
-    st.markdown("## 📊 Ringkasan Rekonsiliasi")
-    cols = st.columns([1.5,2,1.5,1.5,1.5,1.5])
-    cols[0].markdown(f"<div class='stat-card'><div class='stat-label'>✅ Sesuai RUP</div><div class='stat-value'>{jumlah_paket_sesuai} Paket</div><div>Rp {jumlah_anggaran_sesuai:,.0f}</div></div>", unsafe_allow_html=True)
-    cols[1].markdown(f"<div class='stat-card' style='border-top:5px solid #e67e22;'><div class='stat-label'>⚠️ Hanya Realisasi</div><div class='stat-value'>{jumlah_paket_real_only} Paket</div><div>Rp {jumlah_anggaran_real_only:,.0f}</div></div>", unsafe_allow_html=True)
-    cols[2].markdown(f"<div class='stat-card' style='border-top:5px solid #f39c12;'><div class='stat-label'>⏳ Belum Terealisasi</div><div class='stat-value'>{jumlah_paket_belum} Paket</div><div>Rp {jumlah_anggaran_belum:,.0f}</div></div>", unsafe_allow_html=True)
-    cols[3].markdown(f"<div class='stat-card' style='border-top:5px solid #27ae60;'><div class='stat-label'>🟢 Swakelola Tercatat</div><div class='stat-value'>{jumlah_paket_swakelola_tercatat} Paket</div><div>Rp {jumlah_anggaran_swakelola_tercatat:,.0f}</div></div>", unsafe_allow_html=True)
-    cols[4].markdown(f"<div class='stat-card' style='border-top:5px solid #c0392b;'><div class='stat-label'>🔴 Swakelola Tidak Tercatat</div><div class='stat-value'>{jumlah_paket_swakelola_tidak_tercatat} Paket</div><div>Rp {jumlah_anggaran_swakelola_tidak_tercatat:,.0f}</div></div>", unsafe_allow_html=True)
-    cols[5].markdown(f"<div class='stat-card' style='border-top:5px solid #9b59b6;'><div class='stat-label'>🛒 Toko Daring</div><div class='stat-value'>{jumlah_paket_tokodaring} Paket</div><div>Rp {jumlah_anggaran_tokodaring:,.0f}</div></div>", unsafe_allow_html=True)
+    # --- Ringkasan Hasil Analisa (Data.inaproc) ---
+    df_ren_penyedia_analisa = df_ren[~df_ren['Metode Pengadaan'].str.contains('swakelola', na=False)]
+    df_real_penyedia_analisa = df_real[~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)]
+    df_ren_swakelola_analisa = df_ren[df_ren['Cara Pengadaan'].str.contains('swakelola', na=False)]
+    df_real_swakelola_analisa = df_real[(df_real['Sumber Transaksi'].str.contains('swakelola', na=False)) |
+                                        (df_real['Metode Pengadaan'].str.contains('swakelola', na=False))]
 
-    # --- RINGKASAN HASIL ANALISA DATA.INAPROC ---
-    df_analisa = {
-        "Perencanaan Penyedia": df_ren[~df_ren['Metode Pengadaan'].str.contains('swakelola', na=False)],
-        "Perencanaan Swakelola": df_ren[df_ren['Cara Pengadaan'].str.contains('swakelola', na=False)],
-        "Realisasi Penyedia": df_real[~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)],
-        # Flex filter: cek Sumber Transaksi dan Metode Pengadaan
-        "Realisasi Swakelola": df_real[
-            df_real['Sumber Transaksi'].str.contains('swakelola', na=False) |
-            df_real['Metode Pengadaan'].str.contains('swakelola', na=False)
-        ]
-    }
+    if satker_terpilih != "Semua":
+        df_ren_penyedia_analisa = df_ren_penyedia_analisa[df_ren_penyedia_analisa['Nama Satuan Kerja']==satker_terpilih]
+        df_real_penyedia_analisa = df_real_penyedia_analisa[df_real_penyedia_analisa['Nama Satuan Kerja']==satker_terpilih]
+        df_ren_swakelola_analisa = df_ren_swakelola_analisa[df_ren_swakelola_analisa['Nama Satuan Kerja']==satker_terpilih]
+        df_real_swakelola_analisa = df_real_swakelola_analisa[df_real_swakelola_analisa['Nama Satuan Kerja']==satker_terpilih]
 
-    st.markdown("## 📌 Ringkasan Hasil Analisa (Data.inaproc)")
-    cols = st.columns(4)
-    for i, (k, df_tmp) in enumerate(df_analisa.items()):
-        jml, ang = hitung(df_tmp)
-        cols[i].markdown(f"<div class='stat-card'><div class='stat-label'>{k}</div><div class='stat-value'>{jml} Paket</div><div>Rp {ang:,.0f}</div></div>", unsafe_allow_html=True)
+    jumlah_pkt_ren_penyedia, jumlah_ang_ren_penyedia = hitung(df_ren_penyedia_analisa)
+    jumlah_pkt_real_penyedia, jumlah_ang_real_penyedia = hitung(df_real_penyedia_analisa)
+    jumlah_pkt_ren_swakelola, jumlah_ang_ren_swakelola = hitung(df_ren_swakelola_analisa)
+    jumlah_pkt_real_swakelola, jumlah_ang_real_swakelola = hitung(df_real_swakelola_analisa)
 
-    # --- TAB DETAIL PER KATEGORI (Sesuai Analisa) ---
-    st.markdown("## 📑 Tabel Detail per Kategori (Sesuai Hasil Analisa)")
-    tab1, tab2, tab3, tab4 = st.tabs(list(df_analisa.keys()))
-    for tab, (k, df_tmp) in zip([tab1, tab2, tab3, tab4], df_analisa.items()):
-        with tab:
-            st.dataframe(df_tmp,use_container_width=True)
+    st.markdown("## 🔍 Perbandingan Ringkasan: Analisa vs Rekonsiliasi")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("### 📌 Hasil Analisa (Data.inaproc)")
+        cols_a = st.columns(4)
+        cols_a[0].markdown(f"<div class='stat-card'><div class='stat-label'>Penyedia (Rencana)</div><div class='stat-value'>{jumlah_pkt_ren_penyedia} Paket</div><div>Rp {jumlah_ang_ren_penyedia:,.0f}</div></div>", unsafe_allow_html=True)
+        cols_a[1].markdown(f"<div class='stat-card'><div class='stat-label'>Penyedia (Realisasi)</div><div class='stat-value'>{jumlah_pkt_real_penyedia} Paket</div><div>Rp {jumlah_ang_real_penyedia:,.0f}</div></div>", unsafe_allow_html=True)
+        cols_a[2].markdown(f"<div class='stat-card'><div class='stat-label'>Swakelola (Rencana)</div><div class='stat-value'>{jumlah_pkt_ren_swakelola} Paket</div><div>Rp {jumlah_ang_ren_swakelola:,.0f}</div></div>", unsafe_allow_html=True)
+        cols_a[3].markdown(f"<div class='stat-card'><div class='stat-label'>Swakelola (Realisasi)</div><div class='stat-value'>{jumlah_pkt_real_swakelola} Paket</div><div>Rp {jumlah_ang_real_swakelola:,.0f}</div></div>", unsafe_allow_html=True)
 
-    # --- DOWNLOAD EXCEL ---
+    with col2:
+        st.markdown("### 📊 Ringkasan Rekonsiliasi")
+        jumlah_paket_sesuai, jumlah_anggaran_sesuai = hitung(df_sesuai)
+        jumlah_paket_real_only, jumlah_anggaran_real_only = hitung(df_real_only)
+        jumlah_paket_belum, jumlah_anggaran_belum = hitung(df_belum_teralisasi)
+        jumlah_paket_swakelola_tercatat, jumlah_anggaran_swakelola_tercatat = hitung(df_swakelola_tercatat)
+        jumlah_paket_swakelola_tidak_tercatat, jumlah_anggaran_swakelola_tidak_tercatat = hitung(df_swakelola_tidak_tercatat)
+        jumlah_paket_tokodaring, jumlah_anggaran_tokodaring = hitung(df_tokodaring)
+
+        cols_r = st.columns(6)
+        cols_r[0].markdown(f"<div class='stat-card'><div class='stat-label'>✅ Sesuai RUP</div><div class='stat-value'>{jumlah_paket_sesuai} Paket</div><div>Rp {jumlah_anggaran_sesuai:,.0f}</div></div>", unsafe_allow_html=True)
+        cols_r[1].markdown(f"<div class='stat-card' style='border-top:5px solid #e67e22;'><div class='stat-label'>⚠️ Hanya Realisasi</div><div class='stat-value'>{jumlah_paket_real_only} Paket</div><div>Rp {jumlah_anggaran_real_only:,.0f}</div></div>", unsafe_allow_html=True)
+        cols_r[2].markdown(f"<div class='stat-card' style='border-top:5px solid #f39c12;'><div class='stat-label'>⏳ Belum Terealisasi</div><div class='stat-value'>{jumlah_paket_belum} Paket</div><div>Rp {jumlah_anggaran_belum:,.0f}</div></div>", unsafe_allow_html=True)
+        cols_r[3].markdown(f"<div class='stat-card' style='border-top:5px solid #27ae60;'><div class='stat-label'>🟢 Swakelola Tercatat</div><div class='stat-value'>{jumlah_paket_swakelola_tercatat} Paket</div><div>Rp {jumlah_anggaran_swakelola_tercatat:,.0f}</div></div>", unsafe_allow_html=True)
+        cols_r[4].markdown(f"<div class='stat-card' style='border-top:5px solid #c0392b;'><div class='stat-label'>🔴 Swakelola Tidak Tercatat</div><div class='stat-value'>{jumlah_paket_swakelola_tidak_tercatat} Paket</div><div>Rp {jumlah_anggaran_swakelola_tidak_tercatat:,.0f}</div></div>", unsafe_allow_html=True)
+        cols_r[5].markdown(f"<div class='stat-card' style='border-top:5px solid #9b59b6;'><div class='stat-label'>🛒 Toko Daring</div><div class='stat-value'>{jumlah_paket_tokodaring} Paket</div><div>Rp {jumlah_anggaran_tokodaring:,.0f}</div></div>", unsafe_allow_html=True)
+
+    # --- TAB DETAIL PER KATEGORI DENGAN NOMOR URUT ---
+    st.markdown("## 📑 Tabel Detail per Kategori")
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+        ["Sesuai RUP","Hanya Realisasi","Belum Terealisasi","Swakelola Tercatat","Swakelola Tidak Tercatat","Toko Daring"]
+    )
+    with tab1: st.dataframe(add_index(df_sesuai), use_container_width=True)
+    with tab2: st.dataframe(add_index(df_real_only), use_container_width=True)
+    with tab3: st.dataframe(add_index(df_belum_teralisasi), use_container_width=True)
+    with tab4: st.dataframe(add_index(df_swakelola_tercatat), use_container_width=True)
+    with tab5: st.dataframe(add_index(df_swakelola_tidak_tercatat), use_container_width=True)
+    with tab6: st.dataframe(add_index(df_tokodaring), use_container_width=True)
+
+    # --- DOWNLOAD EXCEL SESUAI NOMOR URUT ---
     st.markdown("## 🗂️ Unduh Laporan Excel")
     download_data = {
-        **df_analisa,
+        "Perencanaan_Penyedia": df_ren_penyedia_analisa,
+        "Perencanaan_Swakelola": df_ren_swakelola_analisa,
+        "Realisasi_Penyedia": df_real_penyedia_analisa,
+        "Realisasi_Swakelola": df_real_swakelola_analisa,
         "Sesuai_RUP": df_sesuai,
         "Hanya_Realisasi": df_real_only,
         "Belum_Terealisasi": df_belum_teralisasi,
@@ -135,8 +158,9 @@ if file_ren and file_real:
     for name, df_dl in download_data.items():
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+            df_dl_indexed = add_index(df_dl)
             sheet_name = name[:31]
-            df_dl.to_excel(writer, sheet_name=sheet_name, index=False)
+            df_dl_indexed.to_excel(writer, sheet_name=sheet_name, index=False)
         st.download_button(f"📥 Download {name}", data=buf.getvalue(),
                            file_name=f"Laporan_{name}_{satker_terpilih.replace(' ','_')}.xlsx",
                            use_container_width=True)

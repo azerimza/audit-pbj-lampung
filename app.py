@@ -37,7 +37,7 @@ if file_ren and file_real:
     for df in [df_ren, df_real]:
         if rup_col in df.columns: df[rup_col] = df[rup_col].astype(str).str.strip()
         if 'Metode Pengadaan' in df.columns: df['Metode Pengadaan'] = df['Metode Pengadaan'].astype(str).str.lower()
-        if 'Sumber Transaksi' in df.columns: df['Sumber Transaksi'] = df['Sumber Transaksi'].astype(str).str.lower().str.strip()
+        if 'Sumber Transaksi' in df.columns: df['Sumber Transaksi'] = df['Sumber Transaksi'].astype(str).str.lower()
         if 'Cara Pengadaan' in df.columns: df['Cara Pengadaan'] = df['Cara Pengadaan'].astype(str).str.lower()
         if 'Nama Satuan Kerja' in df.columns: df['Nama Satuan Kerja'] = df['Nama Satuan Kerja'].astype(str).str.strip()
 
@@ -46,22 +46,19 @@ if file_ren and file_real:
     satker_terpilih = st.sidebar.selectbox("Pilih Satuan Kerja", list_satker)
 
     # --- REKONSILIASI ---
-    df_ren_penyedia = df_ren[~df_ren['Metode Pengadaan'].str.contains('swakelola', na=False)]
-    df_real_penyedia = df_real[~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)]
+    df_ren_penyedia = df_ren[~df_ren['Metode Pengadaan'].str.contains('swakelola', na=False)] if 'Metode Pengadaan' in df_ren.columns else df_ren.copy()
+    df_real_penyedia = df_real[~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)] if 'Metode Pengadaan' in df_real.columns else df_real.copy()
     df_real_penyedia_sum = df_real_penyedia.groupby(rup_col, as_index=False)[val_col].sum().rename(columns={val_col:'Anggaran_Realisasi'})
-    df_sesuai = pd.merge(df_ren_penyedia.drop_duplicates(subset=[rup_col]),
-                         df_real_penyedia_sum, on=rup_col, how='inner') if not df_ren_penyedia.empty else pd.DataFrame(columns=[rup_col,'Anggaran_Realisasi'])
+    df_sesuai = pd.merge(df_ren_penyedia.drop_duplicates(subset=[rup_col]), df_real_penyedia_sum, on=rup_col, how='inner') if not df_ren_penyedia.empty else pd.DataFrame(columns=[rup_col,'Anggaran_Realisasi'])
 
     df_real_only = df_real[(~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)) & (~df_real['Sumber Transaksi'].str.contains('tokodaring', na=False))]
     if rup_col in df_ren.columns: df_real_only = df_real_only[~df_real_only[rup_col].isin(df_ren[rup_col])]
 
-    df_belum_teralisasi = df_ren[(~df_ren[rup_col].isin(df_real[rup_col])) & (df_ren['Cara Pengadaan'].str.contains('penyedia', case=False, na=False))]
+    df_belum_teralisasi = df_ren[(~df_ren[rup_col].isin(df_real[rup_col])) & (df_ren['Cara Pengadaan'].str.contains('penyedia', case=False, na=False))] if not df_ren.empty else pd.DataFrame()
 
     df_ren_swa = df_ren[df_ren['Cara Pengadaan'].str.contains('swakelola', na=False)]
     df_real_swa = df_real[df_real['Sumber Transaksi'].str.contains('swakelola', na=False)]
-    df_swakelola_tercatat = pd.merge(df_ren_swa.drop_duplicates(subset=[rup_col]),
-                                     df_real_swa.groupby(rup_col, as_index=False)[val_col].sum().rename(columns={val_col:'Anggaran_Realisasi'}),
-                                     on=rup_col, how='inner')
+    df_swakelola_tercatat = pd.merge(df_ren_swa.drop_duplicates(subset=[rup_col]), df_real_swa.groupby(rup_col, as_index=False)[val_col].sum().rename(columns={val_col:'Anggaran_Realisasi'}), on=rup_col, how='inner')
     df_swakelola_tidak_tercatat = df_ren_swa[~df_ren_swa[rup_col].isin(df_real_swa[rup_col])]
     df_tokodaring = df_real[df_real['Sumber Transaksi'].str.contains('tokodaring', na=False)]
 
@@ -78,7 +75,6 @@ if file_ren and file_real:
         if val not in df.columns: val = val_col
         return len(df), df[val].sum() if val in df.columns else 0
 
-    # --- Hitung Ringkasan Rekonsiliasi ---
     jumlah_paket_sesuai, jumlah_anggaran_sesuai = hitung(df_sesuai)
     jumlah_paket_real_only, jumlah_anggaran_real_only = hitung(df_real_only)
     jumlah_paket_belum, jumlah_anggaran_belum = hitung(df_belum_teralisasi)
@@ -86,7 +82,7 @@ if file_ren and file_real:
     jumlah_paket_swakelola_tidak_tercatat, jumlah_anggaran_swakelola_tidak_tercatat = hitung(df_swakelola_tidak_tercatat)
     jumlah_paket_tokodaring, jumlah_anggaran_tokodaring = hitung(df_tokodaring)
 
-    # --- DASHBOARD METRIK REKONSILIASI ---
+    # --- DASHBOARD METRIK FINAL ---
     st.markdown("## 📊 Ringkasan Rekonsiliasi")
     cols = st.columns([1.5,2,1.5,1.5,1.5,1.5])
     cols[0].markdown(f"<div class='stat-card'><div class='stat-label'>✅ Sesuai RUP</div><div class='stat-value'>{jumlah_paket_sesuai} Paket</div><div>Rp {jumlah_anggaran_sesuai:,.0f}</div></div>", unsafe_allow_html=True)
@@ -101,11 +97,7 @@ if file_ren and file_real:
         "Perencanaan Penyedia": df_ren[~df_ren['Metode Pengadaan'].str.contains('swakelola', na=False)],
         "Perencanaan Swakelola": df_ren[df_ren['Cara Pengadaan'].str.contains('swakelola', na=False)],
         "Realisasi Penyedia": df_real[~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)],
-        # Flex filter: cek Sumber Transaksi dan Metode Pengadaan
-        "Realisasi Swakelola": df_real[
-            df_real['Sumber Transaksi'].str.contains('swakelola', na=False) |
-            df_real['Metode Pengadaan'].str.contains('swakelola', na=False)
-        ]
+        "Realisasi Swakelola": df_real[df_real['Sumber Transaksi'].str.contains('swakelola', na=False)]
     }
 
     st.markdown("## 📌 Ringkasan Hasil Analisa (Data.inaproc)")
@@ -121,7 +113,7 @@ if file_ren and file_real:
         with tab:
             st.dataframe(df_tmp,use_container_width=True)
 
-    # --- DOWNLOAD EXCEL ---
+    # --- DOWNLOAD EXCEL SESUAI FILTER SATKER ---
     st.markdown("## 🗂️ Unduh Laporan Excel")
     download_data = {
         **df_analisa,
@@ -135,7 +127,7 @@ if file_ren and file_real:
     for name, df_dl in download_data.items():
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-            sheet_name = name[:31]
+            sheet_name = name[:31]  # pangkas sheet name <=31 char
             df_dl.to_excel(writer, sheet_name=sheet_name, index=False)
         st.download_button(f"📥 Download {name}", data=buf.getvalue(),
                            file_name=f"Laporan_{name}_{satker_terpilih.replace(' ','_')}.xlsx",

@@ -167,7 +167,7 @@ if st.session_state.get("data_proses") is not None:
         df_idx.insert(0, "No", range(1, len(df)+1))
         return df_idx
 
-    # --- METRIK CARD ---
+    # --- METRIK CARD CARD ---
     st.markdown("---")
     st.subheader("Ringkasan Status Rekonsiliasi Anggaran")
     cols = st.columns(4)
@@ -306,4 +306,4 @@ if st.session_state.get("data_proses") is not None:
             use_container_width=True,
             type="primary"
         )
-        st.caption("*Lembar 'Sanding_Detail_Berjarak' berisi 2 tabel terpisah dengan batas kolom F & G kosong murni.*")
+        st.caption("*Lembar 'Sanding_Detail_Berjarak' berisi 2 tabel terpisah dengan batas kolom F & G kosong.*")

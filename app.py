@@ -38,7 +38,6 @@ if "data_proses" not in st.session_state:
 # ==============================================================================
 col_logo, col_title = st.columns([1, 8])
 with col_logo:
-    # Ganti dengan path logo Pemprov jika ada, atau gunakan icon default
     st.markdown("<h1>📊</h1>", unsafe_allow_html=True) 
 with col_title:
     st.title("Sistem Rekonsiliasi SIRUP & Realisasi")
@@ -189,7 +188,116 @@ if st.session_state.get("data_proses") is not None:
             st.dataframe(add_index(df_tab), use_container_width=True)
 
     # ==============================================================================
-    # 6. MODUL EXPORT EXCEL
+    # 5.B TAMBAHAN: LAPORAN REKAPITULASI BERDASARKAN OPD (MULTI-LEVEL HEADER)
+    # ==============================================================================
+    st.markdown("---")
+    st.subheader("🏢 Laporan Rekapitulasi Berdasarkan OPD")
+
+    with st.spinner("Menyusun rekapitulasi data per OPD..."):
+        # Ambil semua nama OPD dari data mentah asli untuk looping
+        master_ren = st.session_state.data_proses["df_ren"]
+        master_real = st.session_state.data_proses["df_real"]
+        v_col = st.session_state.data_proses["val_col"]
+        r_col = st.session_state.data_proses["rup_col"]
+        
+        semua_opd = set(master_ren['Nama Satuan Kerja'].dropna()) | set(master_real['Nama Satuan Kerja'].dropna())
+        semua_opd = sorted(list(semua_opd))
+
+        data_rekap_opd = []
+
+        for opd in semua_opd:
+            # Filter Data spesifik untuk OPD yang sedang dilooping
+            ren_opd = master_ren[master_ren['Nama Satuan Kerja'] == opd]
+            real_opd = master_real[master_real['Nama Satuan Kerja'] == opd]
+
+            # --- 3. RUP ---
+            r_penyedia = ren_opd[~ren_opd['Metode Pengadaan'].str.contains('swakelola', na=False)]
+            rup_pen_pkt, rup_pen_ang = len(r_penyedia), r_penyedia[v_col].sum()
+
+            r_swa = ren_opd[ren_opd['Cara Pengadaan'].str.contains('swakelola', na=False)]
+            rup_swa_pkt, rup_swa_ang = len(r_swa), r_swa[v_col].sum()
+
+            # --- 4. REALISASI ---
+            # 4.a Swakelola
+            rl_swa = real_opd[real_opd['Sumber Transaksi'].str.contains('swakelola', na=False)]
+            real_swa_pkt, real_swa_ang = len(rl_swa), rl_swa[v_col].sum()
+
+            # 4.b Penyedia
+            rl_penyedia = real_opd[~real_opd['Metode Pengadaan'].str.contains('swakelola', na=False)]
+            
+            # Sesuai RUP
+            sesuai_df = rl_penyedia[rl_penyedia[r_col].isin(r_penyedia[r_col])]
+            real_pen_sesuai_pkt, real_pen_sesuai_ang = sesuai_df[r_col].nunique(), sesuai_df[v_col].sum()
+
+            # Tidak Sesuai RUP
+            tdk_sesuai_df = rl_penyedia[~rl_penyedia[r_col].isin(r_penyedia[r_col])]
+            real_pen_tdk_pkt, real_pen_tdk_ang = len(tdk_sesuai_df), tdk_sesuai_df[v_col].sum()
+
+            # Toko Daring
+            td_df = rl_penyedia[rl_penyedia['Sumber Transaksi'].str.contains('tokodaring', na=False)]
+            td_pkt, td_ang = len(td_df), td_df[v_col].sum()
+
+            # PDN (Deteksi kolom jika ada)
+            pdn_ang = 0
+            if 'Status PDN' in rl_penyedia.columns:
+                pdn_ang = rl_penyedia[rl_penyedia['Status PDN'].astype(str).str.contains('ya|pdn', na=False, case=False)][v_col].sum()
+
+            # 4.c Selisih RUP & Realisasi Penyedia
+            selisih_pkt = rup_pen_pkt - real_pen_sesuai_pkt
+            selisih_ang = rup_pen_ang - real_pen_sesuai_ang
+
+            # Append urutan data sesuai struktur
+            data_rekap_opd.append([
+                opd,
+                rup_pen_pkt, rup_pen_ang, 
+                rup_swa_pkt, rup_swa_ang,
+                real_swa_pkt, real_swa_ang,
+                real_pen_sesuai_pkt, real_pen_sesuai_ang,
+                real_pen_tdk_pkt, real_pen_tdk_ang,
+                td_pkt, td_ang,
+                pdn_ang,
+                selisih_pkt, selisih_ang
+            ])
+
+        # --- MEMBUAT MULTI-LEVEL HEADERS (MERGER KOLOM) ---
+        struktur_kolom = pd.MultiIndex.from_tuples([
+            ("Nama OPD", "", ""),
+            ("RUP", "Penyedia", "Paket"), ("RUP", "Penyedia", "Anggaran"),
+            ("RUP", "Swakelola", "Paket"), ("RUP", "Swakelola", "Anggaran"),
+            ("Realisasi", "Swakelola", "Paket"), ("Realisasi", "Swakelola", "Anggaran"),
+            ("Realisasi", "Penyedia", "Paket Sesuai RUP"), ("Realisasi", "Penyedia", "Anggaran Sesuai RUP"),
+            ("Realisasi", "Penyedia", "Paket Tdk Sesuai RUP"), ("Realisasi", "Penyedia", "Anggaran Tdk Sesuai"),
+            ("Realisasi", "Penyedia", "Paket Toko Daring"), ("Realisasi", "Penyedia", "Anggaran Toko Daring"),
+            ("Realisasi", "Penyedia", "Nilai PDN"),
+            ("Realisasi", "Selisih RUP & Realisasi Penyedia", "Paket"), 
+            ("Realisasi", "Selisih RUP & Realisasi Penyedia", "Anggaran")
+        ])
+
+        # Render ke DataFrame
+        df_laporan_opd = pd.DataFrame(data_rekap_opd, columns=struktur_kolom)
+        df_laporan_opd.insert(0, ("No", "", ""), range(1, len(df_laporan_opd) + 1)) 
+
+        # Tampilkan tabel di aplikasi
+        st.dataframe(df_laporan_opd, use_container_width=True)
+
+        # Tombol khusus untuk mengunduh rekap OPD
+        buffer_opd = io.BytesIO()
+        with pd.ExcelWriter(buffer_opd, engine='xlsxwriter') as writer:
+            df_laporan_opd.to_excel(writer, sheet_name='Rekap_OPD', index=False)
+            worksheet = writer.sheets['Rekap_OPD']
+            worksheet.set_column(0, 0, 5)
+            worksheet.set_column(1, 1, 35)
+            worksheet.set_column(2, 17, 15)
+
+        st.download_button(
+            label="📥 Unduh Rekap OPD (Excel)",
+            data=buffer_opd.getvalue(),
+            file_name="Laporan_Rekap_OPD.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+    # ==============================================================================
+    # 6. MODUL EXPORT EXCEL (KESELURUHAN & PARSIAL)
     # ==============================================================================
     st.markdown("---")
     st.header("📥 Pusat Unduhan Laporan")
@@ -204,7 +312,6 @@ if st.session_state.get("data_proses") is not None:
         "Swakelola_Sisa": df_swakelola_tidak_tercatat
     }
 
-    # Fungsi Bantuan Format Excel
     def generate_excel(df_sum, dict_detail, satker):
         out = io.BytesIO()
         with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
@@ -214,7 +321,6 @@ if st.session_state.get("data_proses") is not None:
             curr_fmt = wb.add_format({'num_format': '#,##0', 'border': 1})
             pct_fmt = wb.add_format({'num_format': '0.00%', 'border': 1})
             
-            # Tulis Laporan Utama (Hanya jika laporan penuh)
             if df_sum is not None:
                 df_sum.to_excel(writer, sheet_name='Ringkasan', index=False, startrow=4)
                 ws = writer.sheets['Ringkasan']
@@ -229,7 +335,6 @@ if st.session_state.get("data_proses") is not None:
                     ws.write(row+5, 3, df_sum.iloc[row, 3], curr_fmt)
                     ws.write(row+5, 4, df_sum.iloc[row, 4], pct_fmt)
 
-            # Tulis Sheet Detail
             for name, df_d in dict_detail.items():
                 if len(df_d) > 0:
                     df_idx = add_index(df_d)
@@ -240,7 +345,6 @@ if st.session_state.get("data_proses") is not None:
                     ws_d.set_column(0, len(df_idx.columns), 18)
         return out.getvalue()
 
-    # Tombol Unduh Laporan Penuh (Master)
     col_dl1, col_dl2 = st.columns([1, 1])
     
     with col_dl1:

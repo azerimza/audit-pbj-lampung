@@ -3,11 +3,10 @@ import pandas as pd
 import io
 
 # ==============================================================================
-# 1. KONFIGURASI HALAMAN & TEMA VISUAL (UI YANG LEBIH MODERN)
+# 1. KONFIGURASI HALAMAN & TEMA VISUAL
 # ==============================================================================
 st.set_page_config(page_title="Dashboard Rekonsiliasi PBJ", layout="wide", page_icon="📊")
 
-# CSS Kustom untuk mempercantik kartu metrik dan tabel
 st.markdown("""
 <style>
     .reportview-container .main .block-container { padding-top: 2rem; }
@@ -28,7 +27,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. INISIALISASI SESSION STATE (Mencegah AttributeError)
+# 2. INISIALISASI SESSION STATE
 # ==============================================================================
 if "data_proses" not in st.session_state:
     st.session_state.data_proses = None
@@ -91,23 +90,21 @@ if st.session_state.get("data_proses") is not None:
     df_ren, df_real = dp["df_ren"], dp["df_real"]
     val_col, rup_col = dp["val_col"], dp["rup_col"]
 
-    # Filter Satuan Kerja
     list_satker = ["Semua Satuan Kerja"] + sorted(df_ren['Nama Satuan Kerja'].dropna().unique())
     satker_terpilih = st.sidebar.selectbox("Tampilkan Data Unit Kerja:", list_satker)
 
-    # Filter Logika
     if satker_terpilih != "Semua Satuan Kerja":
         df_ren = df_ren[df_ren['Nama Satuan Kerja'] == satker_terpilih] if 'Nama Satuan Kerja' in df_ren.columns else df_ren
         df_real = df_real[df_real['Nama Satuan Kerja'] == satker_terpilih] if 'Nama Satuan Kerja' in df_real.columns else df_real
 
-    # Klasifikasi Data (Penyedia vs Swakelola)
+    # Klasifikasi Data
     df_ren_penyedia = df_ren[~df_ren['Metode Pengadaan'].str.contains('swakelola', na=False)]
     df_real_penyedia = df_real[~df_real['Metode Pengadaan'].str.contains('swakelola', na=False)]
     
     df_ren_swa = df_ren[df_ren['Cara Pengadaan'].str.contains('swakelola', na=False)]
     df_real_swa = df_real[df_real['Sumber Transaksi'].str.contains('swakelola', na=False)]
 
-    # Pemetaan Rekonsiliasi
+    # Rekonsiliasi
     df_real_penyedia_sum = df_real_penyedia.groupby(rup_col, as_index=False)[val_col].sum().rename(columns={val_col:'Anggaran_Realisasi'})
     df_sesuai = pd.merge(df_ren_penyedia, df_real_penyedia_sum, on=rup_col, how='inner')
     df_real_only = df_real_penyedia[~df_real_penyedia[rup_col].isin(df_ren_penyedia[rup_col])]
@@ -116,18 +113,16 @@ if st.session_state.get("data_proses") is not None:
     df_swakelola_tercatat = pd.merge(df_ren_swa, df_real_swa.groupby(rup_col, as_index=False)[val_col].sum().rename(columns={val_col:'Anggaran_Realisasi'}), on=rup_col, how='inner')
     df_swakelola_tidak_tercatat = df_ren_swa[~df_ren_swa[rup_col].isin(df_real_swa[rup_col])]
 
-    # Ekstraksi Transaksi Spesifik
     df_ekatalog = df_real[df_real['Sumber Transaksi'].str.contains('e-katalog|katalog', na=False)]
     df_tokodaring = df_real[df_real['Sumber Transaksi'].str.contains('tokodaring', na=False)]
 
-    # Fungsi Bantuan
     def hitung(df, col): return len(df), df[col].sum() if col in df.columns else 0
     def add_index(df):
         df_idx = df.copy()
         df_idx.insert(0, "No", range(1, len(df)+1))
         return df_idx
 
-    # --- TAMPILAN METRIK REKONSILIASI KANBAN ---
+    # --- METRIK ---
     st.markdown("---")
     st.subheader("Ringkasan Status Rekonsiliasi Anggaran")
     
@@ -149,7 +144,7 @@ if st.session_state.get("data_proses") is not None:
         </div>
         """, unsafe_allow_html=True)
 
-    # --- TABEL LAPORAN EKSEKUTIF (FORMAL) ---
+    # --- LAPORAN EKSEKUTIF ---
     st.markdown("---")
     st.subheader("📋 Laporan Ringkasan Eksekutif")
     
@@ -177,7 +172,7 @@ if st.session_state.get("data_proses") is not None:
         "Capaian (%)": "{:.2%}"
     }).set_properties(**{'background-color': '#ffffff', 'color': 'black', 'border-color': '#e0e0e0'}))
 
-    # --- TAB DETAIL DATA ---
+    # --- TAB DATA ---
     st.markdown("### Rincian Data per Kategori")
     tab_titles = ["✅ Sesuai RUP", "⚠️ Hanya Realisasi", "⏳ Belum Realisasi", "🛒 E-Katalog 6.0", "🏪 Toko Daring", "📝 Swakelola"]
     tab_dfs = [df_sesuai, df_real_only, df_belum_teralisasi, df_ekatalog, df_tokodaring, df_swakelola_tercatat]
@@ -188,13 +183,12 @@ if st.session_state.get("data_proses") is not None:
             st.dataframe(add_index(df_tab), use_container_width=True)
 
     # ==============================================================================
-    # 5.B TAMBAHAN: LAPORAN REKAPITULASI BERDASARKAN OPD (MULTI-LEVEL HEADER)
+    # 5.B LAPORAN REKAPITULASI BERDASARKAN OPD (MULTI-LEVEL HEADER)
     # ==============================================================================
     st.markdown("---")
     st.subheader("🏢 Laporan Rekapitulasi Berdasarkan OPD")
 
     with st.spinner("Menyusun rekapitulasi data per OPD..."):
-        # Ambil semua nama OPD dari data mentah asli untuk looping
         master_ren = st.session_state.data_proses["df_ren"]
         master_real = st.session_state.data_proses["df_real"]
         v_col = st.session_state.data_proses["val_col"]
@@ -206,47 +200,36 @@ if st.session_state.get("data_proses") is not None:
         data_rekap_opd = []
 
         for opd in semua_opd:
-            # Filter Data spesifik untuk OPD yang sedang dilooping
             ren_opd = master_ren[master_ren['Nama Satuan Kerja'] == opd]
             real_opd = master_real[master_real['Nama Satuan Kerja'] == opd]
 
-            # --- 3. RUP ---
             r_penyedia = ren_opd[~ren_opd['Metode Pengadaan'].str.contains('swakelola', na=False)]
             rup_pen_pkt, rup_pen_ang = len(r_penyedia), r_penyedia[v_col].sum()
 
             r_swa = ren_opd[ren_opd['Cara Pengadaan'].str.contains('swakelola', na=False)]
             rup_swa_pkt, rup_swa_ang = len(r_swa), r_swa[v_col].sum()
 
-            # --- 4. REALISASI ---
-            # 4.a Swakelola
             rl_swa = real_opd[real_opd['Sumber Transaksi'].str.contains('swakelola', na=False)]
             real_swa_pkt, real_swa_ang = len(rl_swa), rl_swa[v_col].sum()
 
-            # 4.b Penyedia
             rl_penyedia = real_opd[~real_opd['Metode Pengadaan'].str.contains('swakelola', na=False)]
             
-            # Sesuai RUP
             sesuai_df = rl_penyedia[rl_penyedia[r_col].isin(r_penyedia[r_col])]
             real_pen_sesuai_pkt, real_pen_sesuai_ang = sesuai_df[r_col].nunique(), sesuai_df[v_col].sum()
 
-            # Tidak Sesuai RUP
             tdk_sesuai_df = rl_penyedia[~rl_penyedia[r_col].isin(r_penyedia[r_col])]
             real_pen_tdk_pkt, real_pen_tdk_ang = len(tdk_sesuai_df), tdk_sesuai_df[v_col].sum()
 
-            # Toko Daring
             td_df = rl_penyedia[rl_penyedia['Sumber Transaksi'].str.contains('tokodaring', na=False)]
             td_pkt, td_ang = len(td_df), td_df[v_col].sum()
 
-            # PDN (Deteksi kolom jika ada)
             pdn_ang = 0
             if 'Status PDN' in rl_penyedia.columns:
                 pdn_ang = rl_penyedia[rl_penyedia['Status PDN'].astype(str).str.contains('ya|pdn', na=False, case=False)][v_col].sum()
 
-            # 4.c Selisih RUP & Realisasi Penyedia
             selisih_pkt = rup_pen_pkt - real_pen_sesuai_pkt
             selisih_ang = rup_pen_ang - real_pen_sesuai_ang
 
-            # Append urutan data sesuai struktur
             data_rekap_opd.append([
                 opd,
                 rup_pen_pkt, rup_pen_ang, 
@@ -259,7 +242,6 @@ if st.session_state.get("data_proses") is not None:
                 selisih_pkt, selisih_ang
             ])
 
-        # --- MEMBUAT MULTI-LEVEL HEADERS (MERGER KOLOM) ---
         struktur_kolom = pd.MultiIndex.from_tuples([
             ("Nama OPD", "", ""),
             ("RUP", "Penyedia", "Paket"), ("RUP", "Penyedia", "Anggaran"),
@@ -273,17 +255,16 @@ if st.session_state.get("data_proses") is not None:
             ("Realisasi", "Selisih RUP & Realisasi Penyedia", "Anggaran")
         ])
 
-        # Render ke DataFrame
         df_laporan_opd = pd.DataFrame(data_rekap_opd, columns=struktur_kolom)
         df_laporan_opd.insert(0, ("No", "", ""), range(1, len(df_laporan_opd) + 1)) 
 
-        # Tampilkan tabel di aplikasi
         st.dataframe(df_laporan_opd, use_container_width=True)
 
-        # Tombol khusus untuk mengunduh rekap OPD
         buffer_opd = io.BytesIO()
         with pd.ExcelWriter(buffer_opd, engine='xlsxwriter') as writer:
-            df_laporan_opd.to_excel(writer, sheet_name='Rekap_OPD', index=False)
+            df_export = df_laporan_opd.set_index(("No", "", ""))
+            df_export.to_excel(writer, sheet_name='Rekap_OPD', index=True)
+            
             worksheet = writer.sheets['Rekap_OPD']
             worksheet.set_column(0, 0, 5)
             worksheet.set_column(1, 1, 35)
@@ -293,7 +274,8 @@ if st.session_state.get("data_proses") is not None:
             label="📥 Unduh Rekap OPD (Excel)",
             data=buffer_opd.getvalue(),
             file_name="Laporan_Rekap_OPD.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary"
         )
 
     # ==============================================================================

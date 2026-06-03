@@ -37,7 +37,7 @@ with col_logo:
     st.markdown("<h1>📊</h1>", unsafe_allow_html=True) 
 with col_title:
     st.title("Sistem Rekonsiliasi SIRUP & Realisasi")
-    st.markdown("Analisis Komprehensif Data Perencanaan vs Realisasi Anggaran Biro PBJ")
+    st.markdown("Analisis Komprehensif Data Perencanaan vs Realisasi Anggaran")
 
 with st.sidebar:
     st.header("📂 Unggah Berkas")
@@ -140,13 +140,12 @@ if st.session_state.get("data_proses") is not None:
         agg_dict['Nama Penyedia'] = lambda x: '; '.join(dict.fromkeys([
             str(s).strip() for s in x if str(s).strip().lower() not in ['', 'nan', 'none', '-']
         ]))
-    df_real_penyedia_sum = df_real_penyedia.groupby(rup_col, as_index=False).agg(agg_dict)
-    df_real_penyedia_sum = df_real_penyedia_sum.rename(columns={val_col:'Anggaran_Realisasi'})
+    df_real_penyedia_sum = df_real_penyedia.groupby(rup_col, as_index=False).agg(agg_dict).rename(columns={val_col:'Anggaran_Realisasi'})
     
     df_ren_penyedia_clean = df_ren_penyedia.drop(columns=['Nama Penyedia']) if 'Nama Penyedia' in df_ren_penyedia.columns else df_ren_penyedia
     df_sesuai = pd.merge(df_ren_penyedia_clean, df_real_penyedia_sum, on=rup_col, how='inner')
 
-    # Pembuatan Struktur Kolom Sanding (Tabel Gabungan Datar Melintang untuk Preview di Web)
+    # Pembuatan Struktur Kolom Sanding (Tabel Gabungan Datar Melintang untuk Preview di Web & Excel)
     df_sanding_raw = pd.merge(df_ren_penyedia, df_real_penyedia, on=rup_col, how='inner', suffixes=('_Rencana', '_Realisasi'))
     df_sanding_raw['Selisih Transaksi (Rp)'] = df_sanding_raw['Total Nilai (Rp)_Rencana'] - df_sanding_raw['Total Nilai (Rp)_Realisasi']
 
@@ -169,6 +168,7 @@ if st.session_state.get("data_proses") is not None:
         'Sumber Transaksi_Realisasi': 'Platform Realisasi',
         'Metode Pengadaan_Rencana': 'Metode Pemilihan'
     }
+    # Terapkan rename kolom secara permanen ke df_sanding_view
     df_sanding_view = df_sanding.rename(columns=mapping_nama_kolom)
 
     # Filter Kategori Sampingan
@@ -285,8 +285,9 @@ if st.session_state.get("data_proses") is not None:
     st.markdown("---")
     st.header("📥 Pusat Unduhan Laporan")
     
+    # MENGGUNAKAN df_sanding_view YANG SUDAH DIRENAME SECARA KONSISTEN
     dict_all_data = {
-        "Sanding_Detail_RUP": df_sanding, 
+        "Sanding_Detail_RUP": df_sanding_view, 
         "Sesuai_RUP_Agregat": df_sesuai,
         "Hanya_Realisasi": df_real_only,
         "Belum_Terealisasi": df_belum_teralisasi,
@@ -349,37 +350,35 @@ if st.session_state.get("data_proses") is not None:
                         idx_rencana = 0
                         idx_realisasi = 0
                         
-                        # Parsing baris data gabungan secara sekuensial
-                        for idx, row_data in df_d.reset_index(drop=True).iterrows():
+                        # Dataframe ditarik dari df_sanding_view (nama kolom sudah fix dan pasti ada)
+                        df_sanding_clean = df_d.reset_index(drop=True)
+                        
+                        for idx, row_data in df_sanding_clean.iterrows():
                             excel_row = idx + 5
-                            current_rup = str(row_data.get(rup_col, '')).strip()
+                            current_rup = str(row_data.get('Kode RUP', '')).strip()
                             
-                            # Jika Kode RUP baru (Bukan Pengulangan)
                             if current_rup != last_rup:
                                 idx_rencana += 1
                                 idx_realisasi = 1 
                                 
                                 ws_s.write(excel_row, 0, idx_rencana, text_fmt)
                                 ws_s.write(excel_row, 1, current_rup, text_fmt)
-                                ws_s.write(excel_row, 2, str(row_data.get('Nama Satuan Kerja_Rencana', '')), text_fmt)
-                                ws_s.write(excel_row, 3, str(row_data.get('Nama Paket_Rencana', '')), text_fmt)
-                                ws_s.write(excel_row, 4, float(row_data.get('Total Nilai (Rp)_Rencana', 0)), curr_fmt)
+                                ws_s.write(excel_row, 2, str(row_data.get('Nama OPD', '')), text_fmt)
+                                ws_s.write(excel_row, 3, str(row_data.get('Nama Paket Perencanaan (SIRUP)', '')), text_fmt)
+                                ws_s.write(excel_row, 4, float(row_data.get('Pagu Rencana (SIRUP)', 0)), curr_fmt)
                                 last_rup = current_rup
                             else:
-                                # JIKA KODE RUP SAMA (ONE-TO-MANY), KOSONGKAN KOLOM PERENCANAAN DI KIRI
                                 idx_realisasi += 1
                                 for c_left in range(5):
                                     ws_s.write(excel_row, c_left, '', text_fmt)
                                     
-                            # Tulis Sisi Kanan (Data Realisasi) secara kontinu
                             ws_s.write(excel_row, 7, idx_realisasi, text_fmt)
-                            ws_s.write(excel_row, 8, str(row_data.get('Nama Penyedia_Realisasi', '')), text_fmt)
-                            ws_s.write(excel_row, 9, float(row_data.get('Total Nilai (Rp)_Realisasi', 0)), curr_fmt)
+                            ws_s.write(excel_row, 8, str(row_data.get('Nama Penyedia (Realisasi)', '')), text_fmt)
+                            ws_s.write(excel_row, 9, float(row_data.get('Nilai Riil Realisasi', 0)), curr_fmt)
                             ws_s.write(excel_row, 10, float(row_data.get('Selisih Transaksi (Rp)', 0)), curr_fmt)
-                            ws_s.write(excel_row, 11, str(row_data.get('Sumber Transaksi_Realisasi', '')), text_fmt)
-                            ws_s.write(excel_row, 12, str(row_data.get('Metode Pengadaan_Rencana', '')), text_fmt)
+                            ws_s.write(excel_row, 11, str(row_data.get('Platform Realisasi', '')), text_fmt)
+                            ws_s.write(excel_row, 12, str(row_data.get('Metode Pemilihan', '')), text_fmt)
                     else:
-                        # Ekspor lembar sheet kategori standar biasa
                         df_idx = add_index(df_d)
                         df_idx.to_excel(writer, sheet_name=name[:31], index=False)
                         ws_d = writer.sheets[name[:31]]

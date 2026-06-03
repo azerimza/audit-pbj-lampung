@@ -51,7 +51,7 @@ with st.sidebar:
     st.divider()
 
 # ==============================================================================
-# 4. LOGIKA PEMROSESAN DATA UTAMA (DENGAN PROTEKSI KETAT)
+# 4. LOGIKA PEMROSESAN DATA UTAMA
 # ==============================================================================
 if file_ren and file_real and tombol_proses:
     with st.spinner('Menyelaraskan data RUP dan Realisasi...'):
@@ -60,33 +60,32 @@ if file_ren and file_real and tombol_proses:
         val_col = 'Total Nilai (Rp)'
         rup_col = 'Kode RUP'
 
-        # 1. Standardisasi Nama Kolom (Buang Spasi Tak Terlihat)
+        # Standardisasi Nama Kolom
         df_ren.columns = df_ren.columns.str.strip()
         df_real.columns = df_real.columns.str.strip()
         
-        # 2. Proteksi Anggaran: Bersihkan Format Uang Riil (Titik Ribuan / Rp)
+        # Proteksi Anggaran
         for df in [df_ren, df_real]:
             if val_col in df.columns:
                 if df[val_col].dtype == object:
                     df[val_col] = (df[val_col].astype(str)
                                    .str.replace('Rp', '', case=False, regex=False)
-                                   .str.replace('.', '', regex=False)   # Hapus titik ribuan lokal
-                                   .str.replace(',', '.', regex=False)   # Ubah koma desimal ke standar Python
+                                   .str.replace('.', '', regex=False)
+                                   .str.replace(',', '.', regex=False)
                                    .str.strip())
                 df[val_col] = pd.to_numeric(df[val_col], errors='coerce').fillna(0)
 
-        # 3. Proteksi Kunci: Standardisasi Kode RUP (Hilangkan .0 Akibat Konversi Excel)
+        # Standardisasi Kode RUP
         for df in [df_ren, df_real]:
             if rup_col in df.columns:
                 df[rup_col] = df[rup_col].astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
 
-        # 4. Pembersihan Teks Kolom Kritis
+        # Pembersihan Teks Kolom Kritis
         for df in [df_ren, df_real]:
             for col in ['Metode Pengadaan', 'Sumber Transaksi', 'Cara Pengadaan', 'Nama Satuan Kerja', 'Nama Penyedia']:
                 if col in df.columns:
                     df[col] = df[col].astype(str).str.strip()
 
-        # Bersihkan baris kosong pada data perencanaan utama
         df_ren = df_ren[df_ren[rup_col].str.lower() != 'nan']
         df_ren = df_ren.drop_duplicates(subset=[rup_col])
 
@@ -110,7 +109,7 @@ if st.session_state.get("data_proses") is not None:
         df_ren = df_ren[df_ren['Nama Satuan Kerja'] == satker_terpilih] if 'Nama Satuan Kerja' in df_ren.columns else df_ren
         df_real = df_real[df_real['Nama Satuan Kerja'] == satker_terpilih] if 'Nama Satuan Kerja' in df_real.columns else df_real
 
-    # Klasifikasi Data (Case-Insensitive)
+    # Klasifikasi Data
     df_ren_penyedia = df_ren[~df_ren['Metode Pengadaan'].str.contains('swakelola', na=False, case=False)]
     df_real_penyedia = df_real[~df_real['Metode Pengadaan'].str.contains('swakelola', na=False, case=False)]
     
@@ -206,7 +205,7 @@ if st.session_state.get("data_proses") is not None:
             st.dataframe(add_index(df_tab), use_container_width=True)
 
     # ==============================================================================
-    # 5.B LAPORAN REKAPITULASI BERDASARKAN OPD (MULTI-LEVEL HEADER)
+    # 5.B LAPORAN REKAPITULASI BERDASARKAN OPD (FORMULA KURUNG REZA)
     # ==============================================================================
     st.markdown("---")
     st.subheader("🏢 Laporan Rekapitulasi Berdasarkan OPD")
@@ -226,32 +225,40 @@ if st.session_state.get("data_proses") is not None:
             ren_opd = master_ren[master_ren['Nama Satuan Kerja'] == opd]
             real_opd = master_real[master_real['Nama Satuan Kerja'] == opd]
 
+            # RUP Penyedia & Swakelola
             r_penyedia = ren_opd[~ren_opd['Metode Pengadaan'].str.contains('swakelola', na=False, case=False)]
             rup_pen_pkt, rup_pen_ang = len(r_penyedia), r_penyedia[v_col].sum()
 
             r_swa = ren_opd[ren_opd['Cara Pengadaan'].str.contains('swakelola', na=False, case=False)]
             rup_swa_pkt, rup_swa_ang = len(r_swa), r_swa[v_col].sum()
 
+            # Realisasi Swakelola
             rl_swa = real_opd[real_opd['Sumber Transaksi'].str.contains('swakelola', na=False, case=False)]
             real_swa_pkt, real_swa_ang = len(rl_swa), rl_swa[v_col].sum()
 
+            # Realisasi Penyedia
             rl_penyedia = real_opd[~real_opd['Metode Pengadaan'].str.contains('swakelola', na=False, case=False)]
             
+            # Kategori: Sesuai RUP
             sesuai_df = rl_penyedia[rl_penyedia[r_col].isin(r_penyedia[r_col])]
             real_pen_sesuai_pkt, real_pen_sesuai_ang = sesuai_df[r_col].nunique(), sesuai_df[v_col].sum()
 
+            # Kategori: Tidak Sesuai RUP
             tdk_sesuai_df = rl_penyedia[~rl_penyedia[r_col].isin(r_penyedia[r_col])]
             real_pen_tdk_pkt, real_pen_tdk_ang = len(tdk_sesuai_df), tdk_sesuai_df[v_col].sum()
 
+            # Kategori: Toko Daring
             td_df = rl_penyedia[rl_penyedia['Sumber Transaksi'].str.contains('tokodaring', na=False, case=False)]
             td_pkt, td_ang = len(td_df), td_df[v_col].sum()
 
+            # Nilai PDN
             pdn_ang = 0
             if 'Status PDN' in rl_penyedia.columns:
                 pdn_ang = rl_penyedia[rl_penyedia['Status PDN'].astype(str).str.contains('ya|pdn', na=False, case=False)][v_col].sum()
 
-            selisih_pkt = rup_pen_pkt - real_pen_sesuai_pkt
-            selisih_ang = rup_pen_ang - real_pen_sesuai_ang
+            # 🛠️ PERUBAHAN SINTAKS: Menyesuaikan Formulasi dengan Pengelompokan Tanda Kurung
+            selisih_pkt = rup_pen_pkt - (real_pen_sesuai_pkt + real_pen_tdk_pkt + td_pkt)
+            selisih_ang = rup_pen_ang - (real_pen_sesuai_ang + real_pen_tdk_ang + td_ang)
 
             data_rekap_opd.append([
                 opd,
@@ -274,8 +281,8 @@ if st.session_state.get("data_proses") is not None:
             ("Realisasi", "Penyedia", "Paket Tdk Sesuai RUP"), ("Realisasi", "Penyedia", "Anggaran Tdk Sesuai"),
             ("Realisasi", "Penyedia", "Paket Toko Daring"), ("Realisasi", "Penyedia", "Anggaran Toko Daring"),
             ("Realisasi", "Penyedia", "Nilai PDN"),
-            ("Realisasi", "Selisih RUP & Realisasi Penyedia", "Paket"), 
-            ("Realisasi", "Selisih RUP & Realisasi Penyedia", "Anggaran")
+            ("Realisasi", "Selisih Bersih (Sisa RUP)", "Paket"), 
+            ("Realisasi", "Selisih Bersih (Sisa RUP)", "Anggaran")
         ])
 
         df_laporan_opd = pd.DataFrame(data_rekap_opd, columns=struktur_kolom)

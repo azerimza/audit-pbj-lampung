@@ -70,12 +70,13 @@ if file_ren and file_real and tombol_proses:
             if 'Sumber Transaksi' in df.columns: df['Sumber Transaksi'] = df['Sumber Transaksi'].astype(str).str.lower().str.strip()
             if 'Cara Pengadaan' in df.columns: df['Cara Pengadaan'] = df['Cara Pengadaan'].astype(str).str.lower()
             if 'Nama Satuan Kerja' in df.columns: df['Nama Satuan Kerja'] = df['Nama Satuan Kerja'].astype(str).str.strip()
+            if 'Nama Penyedia' in df.columns: df['Nama Penyedia'] = df['Nama Penyedia'].astype(str).str.strip()
 
-        # Konversi ke numerik dan hapus duplikasi
+        # Konversi ke numerik dan hapus duplikasi data master dasar
         df_ren[val_col] = pd.to_numeric(df_ren[val_col], errors='coerce').fillna(0)
         df_real[val_col] = pd.to_numeric(df_real[val_col], errors='coerce').fillna(0)
+        
         df_ren = df_ren.drop_duplicates(subset=[rup_col])
-        df_real = df_real.drop_duplicates(subset=[rup_col])
 
         st.session_state.data_proses = {
             "df_ren": df_ren, "df_real": df_real, "val_col": val_col, "rup_col": rup_col
@@ -104,9 +105,20 @@ if st.session_state.get("data_proses") is not None:
     df_ren_swa = df_ren[df_ren['Cara Pengadaan'].str.contains('swakelola', na=False)]
     df_real_swa = df_real[df_real['Sumber Transaksi'].str.contains('swakelola', na=False)]
 
-    # Rekonsiliasi
-    df_real_penyedia_sum = df_real_penyedia.groupby(rup_col, as_index=False)[val_col].sum().rename(columns={val_col:'Anggaran_Realisasi'})
-    df_sesuai = pd.merge(df_ren_penyedia, df_real_penyedia_sum, on=rup_col, how='inner')
+    # Pemetaan Agregasi Realisasi & Ekstraksi Nama Penyedia
+    agg_dict = {val_col: 'sum'}
+    if 'Nama Penyedia' in df_real.columns:
+        # Menggabungkan nama penyedia unik jika ada paket RUP yang dipecah pembayarannya
+        agg_dict['Nama Penyedia'] = lambda x: '; '.join(dict.fromkeys(x.dropna().astype(str)))
+
+    df_real_penyedia_sum = df_real_penyedia.groupby(rup_col, as_index=False).agg(agg_dict)
+    df_real_penyedia_sum = df_real_penyedia_sum.rename(columns={val_col:'Anggaran_Realisasi'})
+    
+    # Penggabungan ke Sesuai RUP (Proteksi kolom ganda Nama Penyedia jika ada di RUP)
+    df_ren_penyedia_clean = df_ren_penyedia.drop(columns=['Nama Penyedia']) if 'Nama Penyedia' in df_ren_penyedia.columns else df_ren_penyedia
+    df_sesuai = pd.merge(df_ren_penyedia_clean, df_real_penyedia_sum, on=rup_col, how='inner')
+    
+    # Kategori Lainnya
     df_real_only = df_real_penyedia[~df_real_penyedia[rup_col].isin(df_ren_penyedia[rup_col])]
     df_belum_teralisasi = df_ren_penyedia[~df_ren_penyedia[rup_col].isin(df_real_penyedia[rup_col])]
 

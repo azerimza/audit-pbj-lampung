@@ -48,7 +48,7 @@ with st.sidebar:
     st.divider()
 
 # ==============================================================================
-# 3. LOGIKA PEMROSESAN DATA UTAMA (DEEPER PROCESSING)
+# 3. LOGIKA PEMROSESAN DATA UTAMA
 # ==============================================================================
 if file_ren and file_real and tombol_proses:
     with st.spinner('Menyelaraskan data RUP dan Realisasi...'):
@@ -112,7 +112,7 @@ if file_ren and file_real and tombol_proses:
         st.success("Data berhasil diselaraskan dengan pemosisian kolom terbaik!")
 
 # ==============================================================================
-# 4. RENDER DASHBOARD & PENYUSUNAN STRUKTUR KOLOM BARU
+# 4. RENDER DASHBOARD & PENYUSUNAN STRUKTUR KOLOM SANDING VENDOR
 # ==============================================================================
 if st.session_state.get("data_proses") is not None:
     dp = st.session_state["data_proses"]
@@ -144,37 +144,26 @@ if st.session_state.get("data_proses") is not None:
     df_ren_penyedia_clean = df_ren_penyedia.drop(columns=['Nama Penyedia']) if 'Nama Penyedia' in df_ren_penyedia.columns else df_ren_penyedia
     df_sesuai = pd.merge(df_ren_penyedia_clean, df_real_penyedia_sum, on=rup_col, how='inner')
 
-    # --- 🛠️ LOGIKA BARU: RESTRUKTURISASI KOLOM SANDING (NAMA PENYEDIA DI DEPAN) ---
-    df_sanding_raw = pd.merge(
-        df_ren_penyedia, 
-        df_real_penyedia, 
-        on=rup_col, 
-        how='inner', 
-        suffixes=('_Rencana', '_Realisasi')
-    )
-
-    # Kalkulasi nilai sisa/selisih real riil per item transaksi duplikat
+    # --- UTUTAN KOLOM REKONSILIASI YANG RAPI ---
+    df_sanding_raw = pd.merge(df_ren_penyedia, df_real_penyedia, on=rup_col, how='inner', suffixes=('_Rencana', '_Realisasi'))
     df_sanding_raw['Selisih Transaksi (Rp)'] = df_sanding_raw['Total Nilai (Rp)_Rencana'] - df_sanding_raw['Total Nilai (Rp)_Realisasi']
 
-    # Penataan urutan kolom super logis untuk memudahkan pembacaan instansi audit
     kolom_sanding_urut = [
         rup_col,
         'Nama Satuan Kerja_Rencana',
         'Nama Paket_Rencana',
-        'Total Nilai (Rp)_Rencana',       # Pagu Rencana
-        'Nama Penyedia_Realisasi',        # ⭐ NAMA PENYEDIA DIGESER KE DEPAN RECONCILIATION BLOCK
-        'Total Nilai (Rp)_Realisasi',     # Nilai Eksekusi Realisasi
-        'Selisih Transaksi (Rp)',         # Sisa Anggaran Paket Ini
+        'Total Nilai (Rp)_Rencana',       # Selesai Blok Rencana
+        'Nama Penyedia_Realisasi',        # Mulai Blok Realisasi
+        'Total Nilai (Rp)_Realisasi',
+        'Selisih Transaksi (Rp)',
         'Sumber Transaksi_Realisasi',
         'Metode Pengadaan_Rencana'
     ]
 
-    # Ambil kolom yang benar-benar ada di dataframe saja (menghindari crash jika ada kolom yang kosong)
     kolom_final_sanding = [c for c in kolom_sanding_urut if c in df_sanding_raw.columns]
     kolom_sisa_sanding = [c for c in df_sanding_raw.columns if c not in kolom_final_sanding]
     df_sanding = df_sanding_raw[kolom_final_sanding + kolom_sisa_sanding].sort_values(by=[rup_col]).reset_index(drop=True)
 
-    # Ubah nama kolom agar enak dilihat di interface screen maupun Excel file
     mapping_nama_kolom = {
         'Nama Satuan Kerja_Rencana': 'Nama OPD',
         'Nama Paket_Rencana': 'Nama Paket Perencanaan (SIRUP)',
@@ -230,7 +219,7 @@ if st.session_state.get("data_proses") is not None:
     df_laporan = pd.DataFrame({
         "Jenis Pengadaan": ["Penyedia", "Swakelola", "TOTAL KESELURUHAN"],
         "Pagu Perencanaan (SIRUP)": [pagu_penyedia, pagu_swa, pagu_penyedia + pagu_swa],
-        "Realisasi Tercatat": [real_penyedia, real_swa, real_pen_sesuai_ang + real_swa if 'real_pen_sesuai_ang' in locals() else real_penyedia + real_swa],
+        "Realisasi Tercatat": [real_penyedia, real_swa, real_penyedia + real_swa],
         "Gap (Selisih)": [pagu_penyedia - real_penyedia, pagu_swa - real_swa, (pagu_penyedia + pagu_swa) - (real_penyedia + real_swa)],
         "Capaian (%)": [(real_penyedia / pagu_penyedia) if pagu_penyedia > 0 else 0, (real_swa / pagu_swa) if pagu_swa > 0 else 0, ((real_penyedia + real_swa) / (pagu_penyedia + pagu_swa)) if (pagu_penyedia + pagu_swa) > 0 else 0]
     })
@@ -244,6 +233,7 @@ if st.session_state.get("data_proses") is not None:
     tabs = st.tabs(tab_titles)
     for tab, df_tab in zip(tabs, tab_dfs):
         with tab:
+            # 🖥️ Di dashboard tetap tampil sebagai satu kesatuan tabel datar utuh melintang
             st.dataframe(add_index(df_tab), use_container_width=True)
 
     # ==============================================================================
@@ -295,12 +285,11 @@ if st.session_state.get("data_proses") is not None:
         st.download_button(label="📥 Unduh Rekap OPD (Excel)", data=buffer_opd.getvalue(), file_name="Laporan_Rekap_OPD.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
 
 # ==============================================================================
-# 6. MODUL EXPORT MULTI-SHEET EXCEL (BUKU LAPORAN INDUK)
+# 6. MODUL EXPORT MULTI-SHEET EXCEL (STRUKTUR SIDE-BY-SIDE BERJARAK FISIK)
 # ==============================================================================
     st.markdown("---")
     st.header("📥 Pusat Unduhan Laporan")
     
-    # Memasukkan df_sanding_view dengan susunan kolom rapi ke dalam Buku Utama
     dict_all_data = {
         "Sanding_Detail_RUP": df_sanding_view,
         "Sesuai_RUP_Agregat": df_sesuai,
@@ -314,11 +303,12 @@ if st.session_state.get("data_proses") is not None:
         out = io.BytesIO()
         with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
             wb = writer.book
-            title_fmt = wb.add_format({'bold': True, 'font_size': 14, 'font_name': 'Arial'})
-            header_fmt = wb.add_format({'bold': True, 'bg_color': '#0c2461', 'color': 'white', 'border': 1, 'align': 'center', 'text_wrap': True})
-            curr_fmt = wb.add_format({'num_format': '#,##0', 'border': 1})
-            pct_fmt = wb.add_format({'num_format': '0.00%', 'border': 1})
-            text_fmt = wb.add_format({'border': 1})
+            title_fmt = wb.add_format({'bold': True, 'font_size': 14, 'font_name': 'Arial', 'color': '#0c2461'})
+            section_fmt = wb.add_format({'bold': True, 'font_size': 11, 'font_name': 'Arial', 'color': '#2c3e50', 'bg_color': '#f1f2f6', 'border': 1})
+            header_fmt = wb.add_format({'bold': True, 'bg_color': '#0c2461', 'color': 'white', 'border': 1, 'align': 'center', 'valign': 'vcenter', 'text_wrap': True})
+            curr_fmt = wb.add_format({'num_format': '#,##0', 'border': 1, 'valign': 'vcenter'})
+            pct_fmt = wb.add_format({'num_format': '0.00%', 'border': 1, 'valign': 'vcenter'})
+            text_fmt = wb.add_format({'border': 1, 'valign': 'vcenter'})
             
             if df_sum is not None:
                 df_sum.to_excel(writer, sheet_name='Ringkasan', index=False, startrow=4)
@@ -336,26 +326,83 @@ if st.session_state.get("data_proses") is not None:
 
             for name, df_d in dict_detail.items():
                 if len(df_d) > 0:
-                    df_idx = add_index(df_d)
-                    df_idx.to_excel(writer, sheet_name=name[:31], index=False)
-                    ws_d = writer.sheets[name[:31]]
-                    
-                    # Formatting dinamis per kolom agar rapi total
-                    for col_num, value in enumerate(df_idx.columns.values):
-                        ws_d.write(0, col_num, value, header_fmt)
+                    if name == "Sanding_Detail_RUP":
+                        # 🌟 LOGIKA EXCEL: MEMBUAT BLOK BERJARAK DI SATU SHEET YANG SAMA
+                        ws_s = wb.add_sheet("Sanding_Detail_RUP")
+                        ws_s.write('A1', 'LAPORAN REKONSILIASI DATA PBJ (SANDING SIDE-BY-SIDE)', title_fmt)
+                        ws_s.write('A2', f'Unit Kerja / Satker: {satker.upper()}')
                         
-                    # Deteksi tipe kolom untuk menerapkan format ribuan uang secara otomatis
-                    for r_idx in range(len(df_idx)):
-                        for c_idx, col_name in enumerate(df_idx.columns):
-                            val = df_idx.iloc[r_idx, c_idx]
-                            if any(keyword in str(col_name).lower() for keyword in ['nilai', 'pagu', 'anggaran', 'selisih']):
-                                ws_d.write(r_idx+1, c_idx, pd.to_numeric(val, errors='coerce') if pd.notnull(val) else 0, curr_fmt)
-                            else:
-                                ws_d.write(r_idx+1, c_idx, str(val) if pd.notnull(val) else '', text_fmt)
-                                
-                    # Set optimal width biar tidak kepotong (###)
-                    ws_d.set_column(0, 0, 6)   # Kolom Nomor
-                    ws_d.set_column(1, len(df_idx.columns)-1, 24)
+                        # Banner klasifikasi di baris ke-4 Excel
+                        ws_s.merge_range('A4:E4', ' TABEL PERENCANAAN (MASTER SIRUP)', section_fmt)
+                        ws_s.merge_range('H4:M4', ' TABEL EKSEKUSI REALISASI (PLATFORM KONTRAK)', section_fmt)
+                        
+                        df_idx = add_index(df_d)
+                        
+                        # Klasifikasi kolom untuk Kiri vs Kanan
+                        col_left = ['No', 'Kode RUP', 'Nama OPD', 'Nama Paket Perencanaan (SIRUP)', 'Pagu Rencana (SIRUP)']
+                        col_right = ['No', 'Nama Penyedia (Realisasi)', 'Nilai Riil Realisasi', 'Selisih Transaksi (Rp)', 'Platform Realisasi', 'Metode Pemilihan']
+                        
+                        df_xl_left = df_idx[[c for c in col_left if c in df_idx.columns]]
+                        df_xl_right = df_idx[[c for c in col_right if c in df_idx.columns]]
+                        
+                        # Tulis Tabel Kiri mulai Kolom A (0), Tabel Kanan mulai Kolom H (7). Kolom F & G kosong melompong.
+                        df_xl_left.to_excel(writer, sheet_name="Sanding_Detail_RUP", index=False, startrow=4, startcol=0)
+                        df_xl_right.to_excel(writer, sheet_name="Sanding_Detail_RUP", index=False, startrow=4, startcol=7)
+                        
+                        # Header format kolom kiri
+                        for col_num, value in enumerate(df_xl_left.columns.values):
+                            ws_s.write(4, col_num, value, header_fmt)
+                            ws_s.set_column(col_num, col_num, 22 if col_num > 0 else 5)
+                            
+                        # Header format kolom kanan
+                        for col_num, value in enumerate(df_xl_right.columns.values):
+                            target_col = col_num + 7
+                            ws_s.write(4, target_col, value, header_fmt)
+                            ws_s.set_column(target_col, target_col, 22 if col_num > 0 else 5)
+                            
+                        # ✂️ KOLOM F (5) DAN G (6) DISET SANGAT SEMPIT SEBAGAI SEPARATOR GAP VISUAL
+                        ws_s.set_column(5, 5, 3)
+                        ws_s.set_column(6, 6, 3)
+                        
+                        # Isi Konten + Format Ribuan Otomatis
+                        for r_idx in range(len(df_idx)):
+                            excel_row = r_idx + 5
+                            
+                            # Content Tabel Kiri
+                            for c_idx, col_name in enumerate(df_xl_left.columns):
+                                val = df_xl_left.iloc[r_idx, c_idx]
+                                if any(k in str(col_name).lower() for k in ['nilai', 'pagu', 'anggaran', 'selisih']):
+                                    ws_s.write(excel_row, c_idx, pd.to_numeric(val, errors='coerce') if pd.notnull(val) else 0, curr_fmt)
+                                else:
+                                    ws_s.write(excel_row, c_idx, str(val) if pd.notnull(val) else '', text_fmt)
+                                    
+                            # Content Tabel Kanan
+                            for c_idx, col_name in enumerate(df_xl_right.columns):
+                                target_col = c_idx + 7
+                                val = df_xl_right.iloc[r_idx, c_idx]
+                                if any(k in str(col_name).lower() for k in ['nilai', 'pagu', 'anggaran', 'selisih']):
+                                    ws_s.write(excel_row, target_col, pd.to_numeric(val, errors='coerce') if pd.notnull(val) else 0, curr_fmt)
+                                else:
+                                    ws_s.write(excel_row, target_col, str(val) if pd.notnull(val) else '', text_fmt)
+                    else:
+                        # Ekspor sheet standar non-sanding
+                        df_idx = add_index(df_d)
+                        df_idx.to_excel(writer, sheet_name=name[:31], index=False)
+                        ws_d = writer.sheets[name[:31]]
+                        
+                        for col_num, value in enumerate(df_idx.columns.values):
+                            ws_d.write(0, col_num, value, header_fmt)
+                            
+                        for r_idx in range(len(df_idx)):
+                            for c_idx, col_name in enumerate(df_idx.columns):
+                                val = df_idx.iloc[r_idx, c_idx]
+                                if any(keyword in str(col_name).lower() for keyword in ['nilai', 'pagu', 'anggaran', 'selisih']):
+                                    ws_d.write(r_idx+1, c_idx, pd.to_numeric(val, errors='coerce') if pd.notnull(val) else 0, curr_fmt)
+                                else:
+                                    ws_d.write(r_idx+1, c_idx, str(val) if pd.notnull(val) else '', text_fmt)
+                                    
+                        ws_d.set_column(0, 0, 6)
+                        ws_d.set_column(1, len(df_idx.columns)-1, 24)
         return out.getvalue()
 
     col_dl1, col_dl2 = st.columns([1, 1])
@@ -370,7 +417,7 @@ if st.session_state.get("data_proses") is not None:
             use_container_width=True,
             type="primary"
         )
-        st.caption("*Mencakup lembar Sanding_Detail_RUP dengan posisi Penyedia di depan.*")
+        st.caption("*Lembar 'Sanding_Detail_RUP' otomatis berjarak murni (Kolom F & G kosong).*")
 
     with col_dl2:
         st.subheader("Unduhan Per Kategori (Parsial)")

@@ -112,7 +112,7 @@ if file_ren and file_real and tombol_proses:
         st.success("Data berhasil diselaraskan menjadi dua blok terpisah!")
 
 # ==============================================================================
-# 4. PARSING DATA & DISTRIBUSI BLOK KIRI-KANAN (SINKRONISASI KOLOM PROTEKSI)
+# 4. PARSING DATA & DISTRIBUSI BLOK KIRI-KANAN
 # ==============================================================================
 if st.session_state.get("data_proses") is not None:
     dp = st.session_state["data_proses"]
@@ -136,41 +136,24 @@ if st.session_state.get("data_proses") is not None:
     df_real_penyedia_sum = df_real_penyedia.groupby(rup_col, as_index=False).agg(agg_dict).rename(columns={val_col:'Anggaran_Realisasi'})
     df_sesuai = pd.merge(df_ren_penyedia.drop(columns=['Nama Penyedia'], errors='ignore'), df_real_penyedia_sum, on=rup_col, how='inner')
 
-    # --- SINKRONISASI PENCEGAHAN KEYERROR ---
+    # --- LOGIKA SINKRONISASI BARIS UNTUK DUA TABEL TERPISAH ---
     df_sanding_raw = pd.merge(df_ren_penyedia, df_real_penyedia, on=rup_col, how='inner', suffixes=('_Rencana', '_Realisasi'))
-    
-    # Deteksi Dinamis (Gunakan Suffix jika bentrok, gunakan nama asli jika unik)
-    col_satker_ren = 'Nama Satuan Kerja_Rencana' if 'Nama Satuan Kerja_Rencana' in df_sanding_raw.columns else 'Nama Satuan Kerja'
-    col_paket_ren = 'Nama Paket_Rencana' if 'Nama Paket_Rencana' in df_sanding_raw.columns else 'Nama Paket'
-    col_nilai_ren = 'Total Nilai (Rp)_Rencana' if 'Total Nilai (Rp)_Rencana' in df_sanding_raw.columns else 'Total Nilai (Rp)'
-    
-    col_penyedia_real = 'Nama Penyedia_Realisasi' if 'Nama Penyedia_Realisasi' in df_sanding_raw.columns else 'Nama Penyedia'
-    col_nilai_real = 'Total Nilai (Rp)_Realisasi' if 'Total Nilai (Rp)_Realisasi' in df_sanding_raw.columns else 'Total Nilai (Rp)'
-    col_sumber_real = 'Sumber Transaksi_Realisasi' if 'Sumber Transaksi_Realisasi' in df_sanding_raw.columns else 'Sumber Transaksi'
-    col_metode_ren = 'Metode Pengadaan_Rencana' if 'Metode Pengadaan_Rencana' in df_sanding_raw.columns else 'Metode Pengadaan'
-
-    # Langkah Aman Tambahan: Jika kolom absen total di file masukan, isi string kosong agar sistem tidak jebol
-    for target_col in [col_satker_ren, col_paket_ren, col_nilai_ren, col_penyedia_real, col_nilai_real, col_sumber_real, col_metode_ren]:
-        if target_col not in df_sanding_raw.columns:
-            df_sanding_raw[target_col] = ""
-
-    # Hitung Kalkulasi Selisih
-    df_sanding_raw['Selisih Transaksi (Rp)'] = pd.to_numeric(df_sanding_raw[col_nilai_ren], errors='coerce').fillna(0) - pd.to_numeric(df_sanding_raw[col_nilai_real], errors='coerce').fillna(0)
+    df_sanding_raw['Selisih Transaksi (Rp)'] = df_sanding_raw['Total Nilai (Rp)_Rencana'] - df_sanding_raw['Total Nilai (Rp)_Realisasi']
     df_sanding_raw = df_sanding_raw.sort_values(by=[rup_col]).reset_index(drop=True)
 
-    # 🛠️ MEMBUAT TABEL KIRI (BLOK PERENCANAAN) - Kebal Eror
-    df_sanding_rencana = df_sanding_raw[[rup_col, col_satker_ren, col_paket_ren, col_nilai_ren]].rename(columns={
-        col_satker_ren: 'Nama OPD',
-        col_paket_ren: 'Nama Paket Perencanaan (SIRUP)',
-        col_nilai_ren: 'Pagu Rencana (SIRUP)'
+    # 🛠️ MEMBUAT TABEL KIRI (BLOK PERENCANAAN)
+    df_sanding_rencana = df_sanding_raw[[rup_col, 'Nama Satuan Kerja_Rencana', 'Nama Paket_Rencana', 'Total Nilai (Rp)_Rencana']].rename(columns={
+        'Nama Satuan Kerja_Rencana': 'Nama OPD',
+        'Nama Paket_Rencana': 'Nama Paket Perencanaan (SIRUP)',
+        'Total Nilai (Rp)_Rencana': 'Pagu Rencana (SIRUP)'
     })
 
-    # 🛠️ MEMBUAT TABEL KANAN (BLOK REALISASI) - Kebal Eror
-    df_sanding_realisasi = df_sanding_raw[[col_penyedia_real, col_nilai_real, 'Selisih Transaksi (Rp)', col_sumber_real, col_metode_ren]].rename(columns={
-        col_penyedia_real: 'Nama Penyedia (Realisasi)',
-        col_nilai_real: 'Nilai Riil Realisasi',
-        col_sumber_real: 'Platform Realisasi',
-        col_metode_ren: 'Metode Pemilihan'
+    # 🛠️ MEMBUAT TABEL KANAN (BLOK REALISASI)
+    df_sanding_realisasi = df_sanding_raw[['Nama Penyedia_Realisasi', 'Total Nilai (Rp)_Realisasi', 'Selisih Transaksi (Rp)', 'Sumber Transaksi_Realisasi', 'Metode Pengadaan_Rencana']].rename(columns={
+        'Nama Penyedia_Realisasi': 'Nama Penyedia (Realisasi)',
+        'Total Nilai (Rp)_Realisasi': 'Nilai Riil Realisasi',
+        'Sumber Transaksi_Realisasi': 'Platform Realisasi',
+        'Metode Pengadaan_Rencana': 'Metode Pemilihan'
     })
 
     # Kategori Lainnya (Parsial)
@@ -188,12 +171,7 @@ if st.session_state.get("data_proses") is not None:
     st.markdown("---")
     st.subheader("Ringkasan Status Rekonsiliasi Anggaran")
     cols = st.columns(4)
-    kategori_cards = [
-        ("Sesuai RUP (Agregat)", df_sesuai, 'Anggaran_Realisasi'), 
-        ("Hanya Realisasi", df_real_only, val_col), 
-        ("Belum Terealisasi", df_belum_teralisasi, val_col), 
-        ("E-Katalog 6.0", df_ekatalog, val_col)
-    ]
+    kategori_cards = [("Sesuai RUP (Agregat)", df_sesuai, 'Anggaran_Realisasi'), ("Hanya Realisasi", df_real_only, val_col), ("Belum Terealisasi", df_belum_teralisasi, val_col), ("E-Katalog 6.0", df_ekatalog, val_col)]
     for idx, (label, df_cat, col_val) in enumerate(kategori_cards):
         pkt, ang = len(df_cat), df_cat[col_val].sum() if col_val in df_cat.columns else 0
         cols[idx].markdown(f"<div class='stat-card'><div class='stat-label'>{label}</div><div class='stat-value-pkt'>{pkt} Paket</div><div class='stat-value-rp'>Rp {ang:,.0f}</div></div>", unsafe_allow_html=True)
@@ -204,6 +182,7 @@ if st.session_state.get("data_proses") is not None:
     
     with tabs[0]:
         st.info("💡 Di bawah ini adalah dua tabel terpisah yang diletakkan berdampingan. Nomor urut (No) di sisi kiri dan kanan saling sinkron per baris transaksi.")
+        # Menggunakan kolom layout Streamlit untuk memisahkan tabel secara fisik di layar monitor
         col_screen_left, col_screen_space, col_screen_right = st.columns([1, 0.05, 1.2])
         with col_screen_left:
             st.markdown("#### 📋 1. Blok Perencanaan (SIRUP)")
@@ -212,13 +191,14 @@ if st.session_state.get("data_proses") is not None:
             st.markdown("#### 🚀 2. Blok Realisasi & Eksekusi")
             st.dataframe(add_index(df_sanding_realisasi), use_container_width=True)
 
+    # Isi Tab Lainnya
     other_dfs = [df_sesuai, df_real_only, df_belum_teralisasi, df_ekatalog, df_tokodaring]
     for i, df_t in enumerate(other_dfs):
         with tabs[i+1]:
             st.dataframe(add_index(df_t), use_container_width=True)
 
 # ==============================================================================
-# 5. MODUL EXPORT EXCEL NATIVE SIDE-BY-SIDE
+# 5. MODUL EXPORT EXCEL NATIVE SIDE-BY-SIDE (JARAK 2 KOLOM KOSONG ORIGINAL)
 # ==============================================================================
     st.markdown("---")
     st.header("📥 Pusat Unduhan Laporan")
@@ -241,33 +221,43 @@ if st.session_state.get("data_proses") is not None:
             curr_fmt = wb.add_format({'num_format': '#,##0', 'border': 1, 'valign': 'vcenter'})
             text_fmt = wb.add_format({'border': 1, 'valign': 'vcenter'})
             
+            # 🌟 LAYER 1: MEMBUAT SHEET KHUSUS SANDING BERJARAK ASLI
             ws_s = wb.add_sheet("Sanding_Detail_Berjarak")
             ws_s.write('A1', 'LAPORAN REKONSILIASI DATA PBJ (SANDING SIDE-BY-SIDE)', title_fmt)
             ws_s.write('A2', f'Unit Kerja / Satker: {satker.upper()}')
             
+            # Tambahkan Label Penunjuk Di Atas Masing-Masing Tabel
             ws_s.merge_range('A4:E4', ' TABEL PERENCANAAN (DARI MASTER SIRUP)', section_fmt)
             ws_s.merge_range('H4:M4', ' TABEL EKSEKUSI REALISASI (DARI PLATFORM/KONTRAK)', section_fmt)
             
             df_xl_left = add_index(df_left_src)
             df_xl_right = add_index(df_right_src)
             
+            # Tulis Tabel Kiri mulai Kolom 0 (Kolom A)
             df_xl_left.to_excel(writer, sheet_name="Sanding_Detail_Berjarak", index=False, startrow=4, startcol=0)
+            # Tulis Tabel Kanan mulai Kolom 7 (Kolom H). Meninggalkan Kolom 5 (F) & Kolom 6 (G) KOSONG TOTAL!
             df_xl_right.to_excel(writer, sheet_name="Sanding_Detail_Berjarak", index=False, startrow=4, startcol=7)
             
+            # Mengaplikasikan Desain Format Header Tabel Kiri
             for col_num, value in enumerate(df_xl_left.columns.values):
                 ws_s.write(4, col_num, value, header_fmt)
                 ws_s.set_column(col_num, col_num, 22 if col_num > 0 else 5)
             
+            # Mengaplikasikan Desain Format Header Tabel Kanan
             for col_num, value in enumerate(df_xl_right.columns.values):
                 target_col = col_num + 7
                 ws_s.write(4, target_col, value, header_fmt)
                 ws_s.set_column(target_col, target_col, 22 if col_num > 0 else 5)
             
+            # Menyetel Jarak Lebar Kolom Pembatas (Kolom F & G dibuat sempit agar terlihat estetik)
             ws_s.set_column(5, 5, 3)
             ws_s.set_column(6, 6, 3)
             
+            # Looping Pengisian Data & Format Sel Angka Keuangan untuk Tabel Sanding
             for r_idx in range(len(df_xl_left)):
                 excel_row = r_idx + 5
+                
+                # Format Baris Konten Tabel Kiri
                 for c_idx, col_name in enumerate(df_xl_left.columns):
                     val = df_xl_left.iloc[r_idx, c_idx]
                     if 'pagu' in str(col_name).lower() or 'nilai' in str(col_name).lower():
@@ -275,6 +265,7 @@ if st.session_state.get("data_proses") is not None:
                     else:
                         ws_s.write(excel_row, c_idx, str(val) if pd.notnull(val) else '', text_fmt)
                 
+                # Format Baris Konten Tabel Kanan
                 for c_idx, col_name in enumerate(df_xl_right.columns):
                     target_col = c_idx + 7
                     val = df_xl_right.iloc[r_idx, c_idx]
@@ -283,6 +274,7 @@ if st.session_state.get("data_proses") is not None:
                     else:
                         ws_s.write(excel_row, target_col, str(val) if pd.notnull(val) else '', text_fmt)
 
+            # 🌟 LAYER 2: MEMBUAT SHEET LAINNYA (KATEGORI PARSIAL)
             for name, df_d in dict_detail.items():
                 if len(df_d) > 0:
                     df_idx = add_index(df_d)

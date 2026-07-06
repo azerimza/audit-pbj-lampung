@@ -41,9 +41,12 @@ with col_title:
 
 with st.sidebar:
     st.header("📂 Unggah Berkas")
-    st.info("Pastikan format berkas adalah CSV asli dari unduhan sistem resmi.")
-    file_ren = st.file_uploader("1. Data Perencanaan (RUP)", type=['csv'])
-    file_real = st.file_uploader("2. Data Realisasi", type=['csv'])
+    st.info("Format berkas yang didukung: CSV atau Excel (.xlsx / .xls) resmi dari sistem.")
+    
+    # PERUBAHAN DI SINI: Menambahkan jenis berkas excel ke parameter type
+    file_ren = st.file_uploader("1. Data Perencanaan (RUP)", type=['csv', 'xlsx', 'xls'])
+    file_real = st.file_uploader("2. Data Realisasi", type=['csv', 'xlsx', 'xls'])
+    
     tombol_proses = st.button("🔄 Proses Data Rekonsiliasi", use_container_width=True, type="primary")
     st.divider()
 
@@ -52,8 +55,16 @@ with st.sidebar:
 # ==============================================================================
 if file_ren and file_real and tombol_proses:
     with st.spinner('Menyelaraskan data RUP dan Realisasi...'):
-        df_ren = pd.read_csv(file_ren)
-        df_real = pd.read_csv(file_real)
+        
+        # PERUBAHAN DI SINI: Logika fungsi pembaca berkas adaptif otomatis
+        def baca_berkas(file_obj):
+            if file_obj.name.endswith('.csv'):
+                return pd.read_csv(file_obj)
+            else:
+                return pd.read_excel(file_obj)
+        
+        df_ren = baca_berkas(file_ren)
+        df_real = baca_berkas(file_real)
         
         # Kamus Pemetaan Kolom Pintar Otomatis
         for df in [df_ren, df_real]:
@@ -145,7 +156,7 @@ if st.session_state.get("data_proses") is not None:
     df_ren_penyedia_clean = df_ren_penyedia.drop(columns=['Nama Penyedia']) if 'Nama Penyedia' in df_ren_penyedia.columns else df_ren_penyedia
     df_sesuai = pd.merge(df_ren_penyedia_clean, df_real_penyedia_sum, on=rup_col, how='inner')
 
-    # Pembuatan Struktur Kolom Sanding (Tabel Gabungan Datar Melintang untuk Preview di Web & Excel)
+    # Pembuatan Struktur Kolom Sanding
     df_sanding_raw = pd.merge(df_ren_penyedia, df_real_penyedia, on=rup_col, how='inner', suffixes=('_Rencana', '_Realisasi'))
     df_sanding_raw['Selisih Transaksi (Rp)'] = df_sanding_raw['Total Nilai (Rp)_Rencana'] - df_sanding_raw['Total Nilai (Rp)_Realisasi']
 
@@ -168,7 +179,6 @@ if st.session_state.get("data_proses") is not None:
         'Sumber Transaksi_Realisasi': 'Platform Realisasi',
         'Metode Pengadaan_Rencana': 'Metode Pemilihan'
     }
-    # Terapkan rename kolom secara permanen ke df_sanding_view
     df_sanding_view = df_sanding.rename(columns=mapping_nama_kolom)
 
     # Filter Kategori Sampingan
@@ -206,7 +216,7 @@ if st.session_state.get("data_proses") is not None:
 
     # --- TABEL EKSEKUTIF ---
     st.markdown("---")
-    st.subheader("📋 Laporan Ringkasan Eksekutif")
+    st.subheader("📋 Laporan Ringkasan Executive")
     pagu_penyedia = df_ren_penyedia[val_col].sum()
     real_penyedia = df_sesuai['Anggaran_Realisasi'].sum()
     pagu_swa = df_ren_swa[val_col].sum()
@@ -280,12 +290,11 @@ if st.session_state.get("data_proses") is not None:
         st.download_button(label="📥 Unduh Rekap OPD (Excel)", data=buffer_opd.getvalue(), file_name="Laporan_Rekap_OPD.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary")
 
 # ==============================================================================
-# 6. ENGINE FILE EXPORT EXCEL (LOGIKA BLANK DUPLIKAT ONE-TO-MANY)
+# 6. ENGINE FILE EXPORT EXCEL
 # ==============================================================================
     st.markdown("---")
     st.header("📥 Pusat Unduhan Laporan")
     
-    # MENGGUNAKAN df_sanding_view YANG SUDAH DIRENAME SECARA KONSISTEN
     dict_all_data = {
         "Sanding_Detail_RUP": df_sanding_view, 
         "Sesuai_RUP_Agregat": df_sesuai,
@@ -350,7 +359,6 @@ if st.session_state.get("data_proses") is not None:
                         idx_rencana = 0
                         idx_realisasi = 0
                         
-                        # Dataframe ditarik dari df_sanding_view (nama kolom sudah fix dan pasti ada)
                         df_sanding_clean = df_d.reset_index(drop=True)
                         
                         for idx, row_data in df_sanding_clean.iterrows():
